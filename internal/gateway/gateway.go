@@ -371,6 +371,8 @@ func (g *Gateway) open(ctx context.Context, d *device, p driver.Provider) {
 	d.dev = dev
 	d.online = true
 	d.offlineSince = time.Time{}
+	d.workSent = false
+	g.noteWorkLocked(d)
 	info := d.info
 	g.wakeLocked(d)
 	g.mu.Unlock()
@@ -570,6 +572,23 @@ func (g *Gateway) screenOfLocked(d *device) (driver.Device, bool) {
 		return l.bg, true
 	}
 	return d.dev, false
+}
+
+// noteWorkLocked tells the phone's driver whether an agent works on it, a
+// task running while the person is not in control, when that changed
+// (driver.WorkWatcher). Android turns Pinky Companion's accessibility
+// service on only while one does.
+func (g *Gateway) noteWorkLocked(d *device) {
+	ww, ok := d.dev.(driver.WorkWatcher)
+	if !ok {
+		return
+	}
+	working := d.lease != nil && !d.person
+	if d.workSent && d.working == working {
+		return
+	}
+	d.working, d.workSent = working, true
+	ww.AgentWorking(working)
 }
 
 // wakeLocked wakes every call waiting on the device's state.

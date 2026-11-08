@@ -1,4 +1,5 @@
 import groovy.json.JsonSlurper
+import java.io.File
 
 plugins {
     id("com.android.application")
@@ -36,6 +37,17 @@ val companionVersionCode: Int = providers.gradleProperty("pinky.versionCode").or
         ?: throw GradleException("android/companion: cannot count commits with git; pass -Ppinky.versionCode=N.")
 }
 
+// Release builds are signed with Pinky's private release key, which only
+// the release workflow has (GitHub secrets, see docs/RELEASING.md): Android
+// installs an update only when it is signed with the installed app's key,
+// so nobody else can sign an update of a released Companion. The workflow
+// passes the keystore's path and password in these variables; a release
+// build without them stops. Builds until 2026-11-08 were all signed with
+// a key that was committed here, and so is public: Pinky replaces them.
+val releaseKeystore: Provider<String> = providers.environmentVariable("PINKY_COMPANION_KEYSTORE")
+val releaseKeystorePassword: Provider<String> = providers.environmentVariable("PINKY_COMPANION_KEYSTORE_PASSWORD")
+val releaseKeyAlias: Provider<String> = providers.environmentVariable("PINKY_COMPANION_KEY_ALIAS").orElse("pinky-companion")
+
 android {
     namespace = "app.pinky.companion"
     compileSdk {
@@ -50,29 +62,39 @@ android {
         targetSdk = 36
         versionCode = companionVersionCode
         versionName = companionVersionName
+        // The abstract socket the service listens on; Pinky's Go client
+        // knows both builds' (internal/driver/android/companion).
+        buildConfigField("String", "SOCKET_NAME", "\"pinky_companion\"")
     }
 
     signingConfigs {
-        // Committed on purpose: every build, from any machine, is signed
-        // with this key, so a newer build installs over an older one. It
-        // guards nothing; never sign anything else with it.
-        create("pinky") {
-            storeFile = rootProject.file("pinky-companion-debug.keystore")
-            storePassword = "android"
-            keyAlias = "pinky-companion"
-            keyPassword = "android"
+        create("release") {
+            if (releaseKeystore.isPresent) {
+                storeFile = file(releaseKeystore.get())
+                storePassword = releaseKeystorePassword.orNull
+                keyAlias = releaseKeyAlias.get()
+                // PKCS12 keystores keep the key under the store's password.
+                keyPassword = releaseKeystorePassword.orNull
+            }
         }
     }
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("pinky")
+            // Builds from the source (make companion, which make app
+            // bundles): an application id of their own, so that they never
+            // install as an update of a released Companion and can sit
+            // beside one, signed with the machine's own debug key
+            // (~/.android/debug.keystore), which Android Studio's tools
+            // create.
+            applicationIdSuffix = ".dev"
+            buildConfigField("String", "SOCKET_NAME", "\"pinky_companion_dev\"")
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
-            signingConfig = signingConfigs.getByName("pinky")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -86,12 +108,36 @@ android {
     }
 }
 
+// A release build without the release key would come out unsigned, or be
+// signed with something else by mistake: stop instead.
+tasks.configureEach {
+    if (name == "preReleaseBuild") {
+        val keystore = releaseKeystore
+        val password = releaseKeystorePassword
+        doFirst {
+            if (!keystore.isPresent || !password.isPresent) {
+                throw GradleException(
+                    "android/companion: a release build is signed with Pinky's release key; set " +
+                        "PINKY_COMPANION_KEYSTORE and PINKY_COMPANION_KEYSTORE_PASSWORD (the release workflow does). " +
+                        "Builds from the source are debug builds: ./gradlew assembleDebug (make companion).",
+                )
+            }
+            if (!File(keystore.get()).isFile) {
+                throw GradleException("android/companion: PINKY_COMPANION_KEYSTORE names no file")
+            }
+        }
+    }
+}
+
 /**
  * Writes assets/pinky-companion.json with the version, so that Pinky can
  * read the version of an APK it bundles without the Android SDK: the APK
  * is a zip file.
  */
 abstract class CompanionVersionAsset : DefaultTask() {
+    @get:Input
+    abstract val applicationId: Property<String>
+
     @get:Input
     abstract val versionName: Property<String>
 
@@ -105,21 +151,23 @@ abstract class CompanionVersionAsset : DefaultTask() {
     fun write() {
         val dir = outputDir.get().asFile
         dir.mkdirs()
-        val name = versionName.get().replace("\\", "\\\\").replace("\"", "\\\"")
+        fun quote(v: String) = "\"" + v.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
         dir.resolve("pinky-companion.json").writeText(
-            "{\"package\":\"app.pinky.companion\",\"version_name\":\"$name\",\"version_code\":${versionCode.get()}}\n",
+            "{\"package\":${quote(applicationId.get())},\"version_name\":${quote(versionName.get())}," +
+                "\"version_code\":${versionCode.get()}}\n",
         )
     }
 }
 
-val companionVersionAsset = tasks.register<CompanionVersionAsset>("companionVersionAsset") {
-    versionName.set(companionVersionName)
-    versionCode.set(companionVersionCode)
-    outputDir.set(layout.buildDirectory.dir("generated/pinky/assets"))
-}
-
+// One per variant: the debug build's package is app.pinky.companion.dev.
 androidComponents {
     onVariants { variant ->
-        variant.sources.assets?.addGeneratedSourceDirectory(companionVersionAsset, CompanionVersionAsset::outputDir)
+        val asset = tasks.register<CompanionVersionAsset>("${variant.name}CompanionVersionAsset") {
+            applicationId.set(variant.applicationId)
+            versionName.set(companionVersionName)
+            versionCode.set(companionVersionCode)
+            outputDir.set(layout.buildDirectory.dir("generated/pinky/${variant.name}/assets"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(asset, CompanionVersionAsset::outputDir)
     }
 }

@@ -38,9 +38,9 @@ func (c *Client) Enable(ctx context.Context) error {
 			return err
 		}
 		list := parseServices(raw)
-		if !slices.ContainsFunc(list, isOurs) {
+		if !slices.ContainsFunc(list, c.isOurs) {
 			st := &restoreState{raw: raw, unset: unset, list: list}
-			value := strings.Join(append(slices.Clone(list), Component), ":")
+			value := strings.Join(append(slices.Clone(list), c.app.Component()), ":")
 			if err := c.writeSetting(ctx, value, false); err != nil {
 				return err
 			}
@@ -84,7 +84,7 @@ func (c *Client) restoreLocked(ctx context.Context) error {
 		return err
 	}
 	list := parseServices(raw)
-	rest := slices.DeleteFunc(slices.Clone(list), isOurs)
+	rest := slices.DeleteFunc(slices.Clone(list), c.isOurs)
 	switch {
 	case sameComponents(rest, st.list):
 		// Android may have rewritten the list in another order or form;
@@ -124,8 +124,8 @@ func (c *Client) turnOn(ctx context.Context) error {
 		return err
 	}
 	list := parseServices(raw)
-	if !slices.ContainsFunc(list, isOurs) {
-		value := strings.Join(append(slices.Clone(list), Component), ":")
+	if !slices.ContainsFunc(list, c.isOurs) {
+		value := strings.Join(append(slices.Clone(list), c.app.Component()), ":")
 		if err := c.writeSetting(ctx, value, false); err != nil {
 			return err
 		}
@@ -164,7 +164,7 @@ func (c *Client) ForceDisable(ctx context.Context) error {
 		return err
 	}
 	list := parseServices(raw)
-	rest := slices.DeleteFunc(slices.Clone(list), isOurs)
+	rest := slices.DeleteFunc(slices.Clone(list), c.isOurs)
 	if len(rest) == len(list) {
 		return nil
 	}
@@ -178,7 +178,7 @@ func (c *Client) Enabled(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return slices.ContainsFunc(parseServices(raw), isOurs), nil
+	return slices.ContainsFunc(parseServices(raw), c.isOurs), nil
 }
 
 func (c *Client) readSetting(ctx context.Context) (raw string, unset bool, err error) {
@@ -265,8 +265,8 @@ func normalizeComponent(component string) string {
 	return component
 }
 
-// isOurs reports whether a flattened component name is Pinky's service, in
-// either the short (".Service") or the full form.
-func isOurs(component string) bool {
-	return normalizeComponent(component) == Package+"/"+ServiceClass
+// isOurs reports whether a flattened component name is the service of the
+// client's build, in either the short (".Service") or the full form.
+func (c *Client) isOurs(component string) bool {
+	return normalizeComponent(component) == c.app.Package+"/"+ServiceClass
 }

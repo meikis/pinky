@@ -140,17 +140,17 @@ type CompanionInstall struct {
 	Bundled   companion.Version // its version; zero when it has no version file
 	Before    companion.Version // the installed version before; zero when it was missing
 	Installed bool              // the APK was installed
-	Replaced  bool              // an older build signed with another key was uninstalled first
+	Replaced  bool              // an installed build signed with another key was uninstalled first
 }
 
 // CompanionState implements driver.CompanionInstaller: missing (or no_apk
-// when Pinky has no APK to install either), outdated when the installed
-// versionCode is lower than the bundled APK's, on when the app's
-// accessibility service is listed and answers, and off otherwise. While the
-// driver has the service on only for its own reads, which it turns off
-// again after a minute, the state is off: the person has not turned it on.
+// when Pinky has no APK to install either); outdated when the installed
+// versionCode is lower than the bundled APK's, or it is signed with another
+// key; on when its accessibility service is on now (an agent works); off
+// when it is off and did not come on the last time the driver tried; ready
+// otherwise: Pinky turns it on while an agent works.
 func (d *Device) CompanionState(ctx context.Context) (driver.CompanionState, error) {
-	c := companion.New(adbRunner{c: d.client, serial: d.info.ID})
+	c := d.newCompanion()
 	defer c.Close()
 	inst, installed, err := c.InstalledVersion(ctx)
 	if err != nil {
@@ -164,29 +164,31 @@ func (d *Device) CompanionState(ctx context.Context) (driver.CompanionState, err
 		return driver.CompanionMissing, nil
 	}
 	if apkErr == nil {
-		if bundled, err := apkVersion(apk); err == nil && inst.Code > 0 && inst.Code < bundled.Code {
+		if _, bundled, err := apkVersion(apk); err == nil && (inst.Code > 0 && inst.Code < bundled.Code || inst.SignedElsewhere(bundled)) {
 			return driver.CompanionOutdated, nil
 		}
 	}
-	if d.companionForTask() {
-		return driver.CompanionOff, nil
+	if d.companionInUse() {
+		return driver.CompanionOn, nil
 	}
 	listed, err := c.Enabled(ctx)
 	if err != nil {
 		return "", wrapErr(err)
 	}
-	if !listed {
-		return driver.CompanionOff, nil
-	}
-	pctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	if _, err := c.Ping(pctx); err != nil {
+	if listed {
+		pctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		if _, err := c.Ping(pctx); err == nil {
+			return driver.CompanionOn, nil
+		}
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
+	}
+	if d.companionFailure() != nil {
 		return driver.CompanionOff, nil
 	}
-	return driver.CompanionOn, nil
+	return driver.CompanionReady, nil
 }
 
 // InstallCompanion implements driver.CompanionInstaller with SetUpCompanion.
@@ -197,16 +199,18 @@ func (d *Device) InstallCompanion(ctx context.Context) error {
 
 // SetUpCompanion installs the bundled companion APK when the phone has none
 // or an older build (or, with force, any build that differs from it), and
-// turns its accessibility service on for good, keeping the person's other
-// services. It is for setup only, when the person asks: the driver never
-// installs anything by itself. A build from before round 3, signed with
-// another key, cannot be updated in place; it is turned off, uninstalled
-// (Pinky's own package only) and replaced. On phones whose Google Play
-// Protect checks adb installs, the phone asks the person to allow the app,
-// and the install waits for the answer, up to ctx.
+// checks that its accessibility service comes on, keeping the person's
+// other services. It is for setup only, when the person asks: the driver
+// never installs anything by itself. A build signed with another key
+// cannot be updated in place; it is turned off, uninstalled (Pinky's own
+// package only) and replaced. On phones whose Google Play Protect checks
+// adb installs, the phone asks the person to allow the app, and the
+// install waits for the answer, up to ctx. The service goes off again a
+// few seconds later, unless an agent works on the phone: Pinky turns it on
+// only while one does.
 func (d *Device) SetUpCompanion(ctx context.Context, force bool) (CompanionInstall, error) {
 	var res CompanionInstall
-	c := companion.New(adbRunner{c: d.client, serial: d.info.ID})
+	c := d.newCompanion()
 	defer c.Close()
 	var installed bool
 	var err error
@@ -216,9 +220,9 @@ func (d *Device) SetUpCompanion(ctx context.Context, force bool) (CompanionInsta
 	apk, apkErr := FindCompanionAPK()
 	res.APK = apk
 	if apkErr == nil {
-		res.Bundled, _ = apkVersion(apk)
+		_, res.Bundled, _ = apkVersion(apk)
 	}
-	need := !installed || res.Bundled.Code > 0 && res.Before.Code < res.Bundled.Code
+	need := !installed || res.Bundled.Code > 0 && res.Before.Code < res.Bundled.Code || res.Before.SignedElsewhere(res.Bundled)
 	if !need && force && apkErr == nil {
 		local, err := fileSHA256(apk)
 		if err != nil {
@@ -231,43 +235,57 @@ func (d *Device) SetUpCompanion(ctx context.Context, force bool) (CompanionInsta
 		if apkErr != nil {
 			return res, fmt.Errorf("%w: %w", apkErr, driver.ErrUnsupported)
 		}
-		if err := d.installCompanionAPK(ctx, c, apk, &res); err != nil {
+		if err := d.installCompanionAPK(ctx, c, apk, res.Before, &res); err != nil {
 			return res, err
 		}
 	}
-	if err := c.TurnOn(ctx); err != nil {
-		return res, wrapErr(err)
-	}
-	// The driver's own link may have the service on for its reads; it must
-	// leave it on now, and look at the app afresh.
+	return res, d.tryCompanion(ctx)
+}
+
+// tryCompanion turns the service on through the driver's own link, as a
+// task would, so that a phone that refuses (settings changes over USB)
+// says so now; it goes off again a few seconds later unless an agent works.
+func (d *Device) tryCompanion(ctx context.Context) error {
 	k := &d.comp
 	k.mu.Lock()
-	if k.client != nil {
-		k.client.KeepEnabled()
+	defer k.mu.Unlock()
+	k.checked, k.retryAt = false, time.Time{}
+	if k.on {
+		k.evMu.Lock()
+		live := k.live
+		k.evMu.Unlock()
+		if live {
+			return nil
+		}
+		d.companionOffLocked("its event stream ended")
 	}
-	k.checked = false
-	k.retryAt = time.Time{}
-	k.mu.Unlock()
-	return res, nil
+	if err := d.companionOnLocked(ctx); err != nil {
+		var cause error = err
+		if f := k.failed; f != nil {
+			cause = f
+		}
+		return wrapErr(cause)
+	}
+	return nil
 }
 
 // installCompanionAPK installs the APK, replacing a build signed with
-// another key.
-func (d *Device) installCompanionAPK(ctx context.Context, c *companion.Client, apk string, res *CompanionInstall) error {
-	err := c.Install(ctx, apk)
-	if err != nil && strings.Contains(err.Error(), "INSTALL_FAILED_UPDATE_INCOMPATIBLE") {
-		d.cfg.logf("android: %s: the installed companion is signed with another key; replacing it", d.info.ID)
-		// Off first, so that Android does not rewrite the person's
-		// accessibility setting when the package goes.
-		d.companionOff("replacing the app")
-		if err := c.ForceDisable(ctx); err != nil {
-			return wrapErr(err)
-		}
-		if err := c.Uninstall(ctx); err != nil {
-			return wrapErr(err)
+// another key: one known to be (before), or one the install refuses.
+func (d *Device) installCompanionAPK(ctx context.Context, c *companion.Client, apk string, before companion.Version, res *CompanionInstall) error {
+	_, bundled, _ := apkVersion(apk)
+	var err error
+	if before.SignedElsewhere(bundled) {
+		err = errSignedElsewhere
+	} else {
+		err = c.Install(ctx, apk)
+	}
+	if errors.Is(err, errSignedElsewhere) || err != nil && strings.Contains(err.Error(), "INSTALL_FAILED_UPDATE_INCOMPATIBLE") {
+		d.cfg.logf("android: %s: the installed companion is signed with another key (%s); replacing it", d.info.ID, signerLine(before.Signer))
+		if err := d.replaceCompanion(ctx, c, apk); err != nil {
+			return err
 		}
 		res.Replaced = true
-		err = c.Install(ctx, apk)
+		err = nil
 	}
 	if err != nil {
 		return wrapErr(err)
@@ -277,38 +295,87 @@ func (d *Device) installCompanionAPK(ctx context.Context, c *companion.Client, a
 	return nil
 }
 
-// companionForTask reports whether the driver has the service on for its
-// own reads only.
-func (d *Device) companionForTask() bool {
+// errSignedElsewhere: the installed build is signed with another key than
+// the APK, so `pm install -r` would refuse it.
+var errSignedElsewhere = errors.New("the installed companion is signed with another key")
+
+// replaceCompanion removes the installed build and installs the APK. The
+// service goes off first, so that Android does not rewrite the person's
+// accessibility setting when the package goes; the app's own settings go
+// with it, which are only how long it stays on without Pinky.
+func (d *Device) replaceCompanion(ctx context.Context, c *companion.Client, apk string) error {
+	d.companionOff("replacing the app")
+	if err := c.ForceDisable(ctx); err != nil {
+		return wrapErr(err)
+	}
+	if err := c.Uninstall(ctx); err != nil {
+		return wrapErr(err)
+	}
+	if err := c.Install(ctx, apk); err != nil {
+		return wrapErr(err)
+	}
 	k := &d.comp
 	k.mu.Lock()
-	defer k.mu.Unlock()
-	return k.on && k.client != nil && k.client.EnabledForTask()
+	k.checked, k.retryAt = false, time.Time{}
+	k.mu.Unlock()
+	return nil
 }
 
-// apkVersion reads a bundled APK's version, cached by path, size and time.
-func apkVersion(apk string) (companion.Version, error) {
+// signerLine names a signer for the log.
+func signerLine(s string) string {
+	switch s {
+	case "":
+		return "unknown key"
+	case companion.OldPublicSigner:
+		return "the old public key"
+	}
+	return "key " + s
+}
+
+// companionApp is the build of the companion app this Pinky uses: the one
+// it carries (the release build in releases, the development build in
+// builds from the source), else the release build.
+func companionApp() companion.App {
+	apk, err := FindCompanionAPK()
+	if err != nil {
+		return companion.Release
+	}
+	app, _, err := apkVersion(apk)
+	if err != nil {
+		return companion.Release
+	}
+	return app
+}
+
+// apkVersion reads a bundled APK's build and version, cached by path, size
+// and time.
+func apkVersion(apk string) (companion.App, companion.Version, error) {
 	fi, err := os.Stat(apk)
 	if err != nil {
-		return companion.Version{}, err
+		return companion.App{}, companion.Version{}, err
 	}
 	key := fmt.Sprintf("%s|%d|%d", apk, fi.Size(), fi.ModTime().UnixNano())
 	apkVersionMu.Lock()
 	defer apkVersionMu.Unlock()
 	if v, ok := apkVersions[key]; ok {
-		return v, nil
+		return v.app, v.ver, nil
 	}
-	v, err := companion.APKVersion(apk)
+	app, ver, err := companion.APKVersion(apk)
 	if err != nil {
-		return v, err
+		return app, ver, err
 	}
-	apkVersions[key] = v
-	return v, nil
+	apkVersions[key] = bundledAPK{app, ver}
+	return app, ver, nil
+}
+
+type bundledAPK struct {
+	app companion.App
+	ver companion.Version
 }
 
 var (
 	apkVersionMu sync.Mutex
-	apkVersions  = map[string]companion.Version{}
+	apkVersions  = map[string]bundledAPK{}
 )
 
 func fileSHA256(path string) (string, error) {

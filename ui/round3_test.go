@@ -293,7 +293,7 @@ func TestCompanionInstallCard(t *testing.T) {
 	if !hasText(tt, "If the phone asks, allow the install.") || ta.comp.installing["pixel-9"].IsZero() {
 		t.Errorf("installing: %q", tt.Texts())
 	}
-	ta.waitFor(t, "the install", func() bool { return ta.comp.state["pixel-9"] == driver.CompanionOn })
+	ta.waitFor(t, "the install", func() bool { return ta.comp.state["pixel-9"] == driver.CompanionReady })
 	if got := ta.api.Installs(); len(got) != 1 || got[0] != "pixel-9" {
 		t.Errorf("installs: %v", got)
 	}
@@ -303,7 +303,7 @@ func TestCompanionInstallCard(t *testing.T) {
 	}
 	ta.page, ta.set.sec = pageSettings, secPhones
 	tt.Frame()
-	if !hasText(tt, "Pinky Companion is on") {
+	if !hasText(tt, "Pinky Companion turns on only while an agent works") {
 		t.Errorf("Settings › Phones: %q", tt.Texts())
 	}
 }

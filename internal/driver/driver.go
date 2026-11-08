@@ -351,10 +351,13 @@ type CompanionState string
 
 // Companion states.
 const (
-	CompanionOn       CompanionState = "on"       // installed, current and its service is running
-	CompanionOff      CompanionState = "off"      // installed, but its accessibility service is off
+	CompanionOn  CompanionState = "on"  // installed, current and its service is running
+	CompanionOff CompanionState = "off" // installed, but its accessibility service is off and Pinky could not turn it on
+	// CompanionReady: installed and current; its service is off, and Pinky
+	// turns it on while an agent works on the phone (WorkWatcher).
+	CompanionReady    CompanionState = "ready"
 	CompanionMissing  CompanionState = "missing"  // not installed
-	CompanionOutdated CompanionState = "outdated" // installed, older than the one Pinky bundles
+	CompanionOutdated CompanionState = "outdated" // installed, older than the one Pinky bundles or signed with another key
 	CompanionNoAPK    CompanionState = "no_apk"   // Pinky has no APK to install (a build without it)
 )
 
@@ -363,10 +366,22 @@ const (
 // the client; the driver never installs anything by itself.
 type CompanionInstaller interface {
 	CompanionState(ctx context.Context) (CompanionState, error)
-	// InstallCompanion installs or updates it and turns its service on.
+	// InstallCompanion installs or updates it and checks that its service
+	// comes on, which it then is only while an agent works on the phone.
 	// The phone may ask the person to allow the install (Google Play
 	// Protect); the call waits for that, up to ctx.
 	InstallCompanion(ctx context.Context) error
+}
+
+// WorkWatcher is told whether an agent works on the phone: from the start
+// of a task to its end, except while the person is in control. A driver
+// keeps on, only while one does, what agents need and the phone's apps can
+// see: Android's Pinky Companion, whose accessibility service banking apps
+// refuse to sign in next to. The gateway calls AgentWorking right after it
+// opens the device and whenever the answer changes; it must return at once
+// and do any work in the background.
+type WorkWatcher interface {
+	AgentWorking(on bool)
 }
 
 // Pairer pairs phones over the network: Android's wireless debugging, by

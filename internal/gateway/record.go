@@ -297,6 +297,7 @@ func (g *Gateway) endLeaseLocked(l *lease, outcome, summary string) {
 		if d.inflight != nil {
 			d.inflight()
 		}
+		g.noteWorkLocked(d)
 	}
 	if l.session.leases[d.id] == l {
 		delete(l.session.leases, d.id)

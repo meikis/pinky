@@ -146,7 +146,7 @@ setup)
 	# what each is.
 	have=$(gh secret list --repo "$repo" --json name --jq '.[].name' 2>/dev/null || true)
 	missing=
-	for s in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD; do
+	for s in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD COMPANION_KEYSTORE COMPANION_KEYSTORE_PASSWORD; do
 		printf '%s\n' "$have" | grep -qx "$s" || missing="$missing $s"
 	done
 	if ! printf '%s\n' "$have" | grep -qx NOTARY_API_KEY && ! printf '%s\n' "$have" | grep -qx APPLE_ID; then

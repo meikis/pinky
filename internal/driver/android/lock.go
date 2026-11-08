@@ -368,9 +368,11 @@ func (d *Device) readBouncer(ctx context.Context) (bouncer, error) {
 // layout without AOSP's ids, to check that path on an emulator.
 var padOnlyDevice atomic.Pointer[Device]
 
-// readLockNodes reads the nodes of the main display's windows.
+// readLockNodes reads the nodes of the main display's windows, with the
+// companion even while no agent works: unlocking reads the PIN pad several
+// times, at about 2 s a read with uiautomator.
 func (d *Device) readLockNodes(ctx context.Context) ([]lockNode, error) {
-	if c := d.companionClient(ctx); c != nil {
+	if c := d.companionClientFor(ctx, forUnlock); c != nil {
 		t, err := c.Dump(ctx, companion.DumpOptions{})
 		if err == nil {
 			return companionLockNodes(t), nil

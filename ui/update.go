@@ -630,7 +630,11 @@ func (a *app) news(all bool) (title, line, md string, show bool) {
 		var b strings.Builder
 		b.WriteString("### Pinky Companion\n")
 		for _, ch := range st.Changes {
-			b.WriteString("\n- " + locales.UpdateNewsCompanionLine(ch.Device, ch.To))
+			line := locales.UpdateNewsCompanionLine(ch.Device, ch.To)
+			if ch.Kind == "companion-replaced" {
+				line = locales.UpdateNewsCompanionReplaced(ch.Device, ch.To)
+			}
+			b.WriteString("\n- " + line)
 			if !ch.At.IsZero() {
 				b.WriteString(locales.UpdateNewsAt(ch.At.Local()))
 			}
@@ -937,10 +941,16 @@ func (a *app) updateCompanion(cu companionUpdater, d gateway.DeviceView, ca *com
 				log.Printf("pinky: update the companion on %s: %v", name, err)
 				ca.failedAt = time.Now()
 			case res.Updated:
-				log.Printf("pinky: updated the companion on %s: %s -> %s", name, res.From, res.To)
-				a.toasts = append(a.toasts, locales.UpdateCompanionToast(name))
+				log.Printf("pinky: updated the companion on %s: %s -> %s (replaced: %v)", name, res.From, res.To, res.Replaced)
+				kind, toast := "companion", locales.UpdateCompanionToast(name)
+				if res.Replaced {
+					// It was signed with another key: the person should know
+					// why their phone's app was reinstalled.
+					kind, toast = "companion-replaced", locales.UpdateCompanionReplacedToast(name)
+				}
+				a.toasts = append(a.toasts, toast)
 				a.opt.Updates.Change(func(st *update.State) {
-					st.Changes = append(st.Changes, update.Change{Kind: "companion", Device: name, From: res.From, To: res.To, At: time.Now()})
+					st.Changes = append(st.Changes, update.Change{Kind: kind, Device: name, From: res.From, To: res.To, At: time.Now()})
 				})
 			}
 		})

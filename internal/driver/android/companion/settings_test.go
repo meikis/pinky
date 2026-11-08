@@ -28,8 +28,8 @@ func enableDisable(t *testing.T, p *fakePhone) *Client {
 func TestEnableDisableUnset(t *testing.T) {
 	p := newFakePhone(t)
 	c := enableDisable(t, p)
-	if got := p.settings[settingKey]; got != Component {
-		t.Errorf("during the task: %q, want %q", got, Component)
+	if got := p.settings[settingKey]; got != Release.Component() {
+		t.Errorf("during the task: %q, want %q", got, Release.Component())
 	}
 	if err := c.Disable(context.Background()); err != nil {
 		t.Fatal(err)
@@ -46,7 +46,7 @@ func TestEnableKeepsOtherServices(t *testing.T) {
 	p := newFakePhone(t)
 	p.settings[settingKey] = mika
 	c := enableDisable(t, p)
-	if got, want := p.settings[settingKey], mika+":"+Component; got != want {
+	if got, want := p.settings[settingKey], mika+":"+Release.Component(); got != want {
 		t.Errorf("during the task: %q, want %q", got, want)
 	}
 	if err := c.Disable(context.Background()); err != nil {
@@ -59,7 +59,7 @@ func TestEnableKeepsOtherServices(t *testing.T) {
 
 func TestEnableLeavesUserEnabledService(t *testing.T) {
 	p := newFakePhone(t)
-	p.settings[settingKey] = Package + "/" + ServiceClass // full form, written by hand
+	p.settings[settingKey] = Release.Package + "/" + ServiceClass // full form, written by hand
 	c := enableDisable(t, p)
 	puts := func() int {
 		n := 0
@@ -134,7 +134,7 @@ func TestDisableAfterServiceTurnedItselfOff(t *testing.T) {
 
 func TestForceDisable(t *testing.T) {
 	p := newFakePhone(t)
-	p.settings[settingKey] = mika + ":" + Component
+	p.settings[settingKey] = mika + ":" + Release.Component()
 	c := New(p)
 	defer c.Close()
 	if err := c.ForceDisable(context.Background()); err != nil {
@@ -143,7 +143,7 @@ func TestForceDisable(t *testing.T) {
 	if got := p.settings[settingKey]; got != mika {
 		t.Errorf("after: %q", got)
 	}
-	p.settings[settingKey] = Component
+	p.settings[settingKey] = Release.Component()
 	if err := c.ForceDisable(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestEnableTimesOutWhenServiceNeverStarts(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
 	defer cancel()
 	p.mu.Lock()
-	p.rewrite = func(v string) string { return strings.ReplaceAll(v, Component, "") }
+	p.rewrite = func(v string) string { return strings.ReplaceAll(v, Release.Component(), "") }
 	p.mu.Unlock()
 	if err := c.Enable(ctx); err == nil {
 		t.Fatal("Enable should fail when the service never answers")
@@ -175,13 +175,13 @@ func TestEnableTimesOutWhenServiceNeverStarts(t *testing.T) {
 }
 
 func TestComponentNames(t *testing.T) {
-	for _, s := range []string{Component, Package + "/" + ServiceClass} {
-		if !isOurs(s) {
+	for _, s := range []string{Release.Component(), Release.Package + "/" + ServiceClass} {
+		if !New(nil).isOurs(s) {
 			t.Errorf("isOurs(%q) = false", s)
 		}
 	}
 	for _, s := range []string{mika, "app.pinky.companion/.Other", "app.pinky.companionx/.PinkyAccessibilityService", ""} {
-		if isOurs(s) {
+		if New(nil).isOurs(s) {
 			t.Errorf("isOurs(%q) = true", s)
 		}
 	}
@@ -206,13 +206,13 @@ func TestTurnOnKeepsOtherServicesAndStaysOn(t *testing.T) {
 	if err := c.TurnOn(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := p.settings[settingKey], mika+":"+Component; got != want {
+	if got, want := p.settings[settingKey], mika+":"+Release.Component(); got != want {
 		t.Errorf("after TurnOn: %q, want %q", got, want)
 	}
 	if err := c.Disable(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := p.settings[settingKey], mika+":"+Component; got != want {
+	if got, want := p.settings[settingKey], mika+":"+Release.Component(); got != want {
 		t.Errorf("Disable after TurnOn: %q, want it left on (%q)", got, want)
 	}
 	// Already on: TurnOn writes nothing.
@@ -242,7 +242,7 @@ func TestKeepEnabledAfterEnable(t *testing.T) {
 	if err := task.Disable(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := p.settings[settingKey], mika+":"+Component; got != want {
+	if got, want := p.settings[settingKey], mika+":"+Release.Component(); got != want {
 		t.Errorf("after Disable: %q, want %q", got, want)
 	}
 }

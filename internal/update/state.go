@@ -33,7 +33,7 @@ type State struct {
 
 // Change is an update the person did not start, to mention in What's new.
 type Change struct {
-	Kind   string    `json:"kind"` // "companion"
+	Kind   string    `json:"kind"` // "companion", or "companion-replaced" when one signed with another key was replaced
 	Device string    `json:"device,omitempty"`
 	From   string    `json:"from,omitempty"`
 	To     string    `json:"to"`

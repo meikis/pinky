@@ -2395,18 +2395,18 @@ func (msgs Messages) CheckCompanionNone() string {
 	return Catalog.Format(msgs.locale, "checkCompanionNone", nil)
 }
 
-// CheckCompanionOff says "Installed, but its accessibility service is off."
+// CheckCompanionOff says "Installed, but Pinky couldn't turn on its accessibility service."
 // in the language the app shows.
 //
-// The checkup, Pinky Companion: its service is off; a Turn on button
-// follows.
+// The checkup, Pinky Companion: its service did not come on the last time
+// Pinky tried; a Turn on button follows.
 func CheckCompanionOff() string { return In(i18n.Locale()).CheckCompanionOff() }
 
-// CheckCompanionOff says "Installed, but its accessibility service is off."
+// CheckCompanionOff says "Installed, but Pinky couldn't turn on its accessibility service."
 // in the language of msgs.
 //
-// The checkup, Pinky Companion: its service is off; a Turn on button
-// follows.
+// The checkup, Pinky Companion: its service did not come on the last time
+// Pinky tried; a Turn on button follows.
 func (msgs Messages) CheckCompanionOff() string {
 	return Catalog.Format(msgs.locale, "checkCompanionOff", nil)
 }
@@ -2517,16 +2517,20 @@ func (msgs Messages) CheckCompanionOutdated() string {
 	return Catalog.Format(msgs.locale, "checkCompanionOutdated", nil)
 }
 
-// CheckCompanionPass says "Installed and on: Pinky reads the screen quickly and types any language."
+// CheckCompanionPass says "Installed. Pinky turns it on only while an agent works on the phone, then reads the screen quickly and types any lang…"
 // in the language the app shows.
 //
-// The checkup, Pinky Companion: passed.
+// The checkup, Pinky Companion: passed. Pinky turns the app's accessibility
+// service on only while an agent works on the phone, and off again
+// afterwards.
 func CheckCompanionPass() string { return In(i18n.Locale()).CheckCompanionPass() }
 
-// CheckCompanionPass says "Installed and on: Pinky reads the screen quickly and types any language."
+// CheckCompanionPass says "Installed. Pinky turns it on only while an agent works on the phone, then reads the screen quickly and types any lang…"
 // in the language of msgs.
 //
-// The checkup, Pinky Companion: passed.
+// The checkup, Pinky Companion: passed. Pinky turns the app's accessibility
+// service on only while an agent works on the phone, and off again
+// afterwards.
 func (msgs Messages) CheckCompanionPass() string {
 	return Catalog.Format(msgs.locale, "checkCompanionPass", nil)
 }
@@ -3885,14 +3889,16 @@ func (msgs Messages) CompanionInstall() string {
 // in the language the app shows.
 //
 // The Pinky Companion card, when the app is not installed: why to install
-// it. name is the phone's name. The card is in a narrow side panel.
+// it. Pinky turns its accessibility service on only while an agent works on
+// the phone. name is the phone's name. The card is in a narrow side panel.
 func CompanionInstallBody(name string) string { return In(i18n.Locale()).CompanionInstallBody(name) }
 
 // CompanionInstallBody says "A small Pinky app for {name}. Agents control the phone faster and more steadily with it, and type without using its c…"
 // in the language of msgs.
 //
 // The Pinky Companion card, when the app is not installed: why to install
-// it. name is the phone's name. The card is in a narrow side panel.
+// it. Pinky turns its accessibility service on only while an agent works on
+// the phone. name is the phone's name. The card is in a narrow side panel.
 func (msgs Messages) CompanionInstallBody(name string) string {
 	return Catalog.Format(msgs.locale, "companionInstallBody", map[string]any{"name": name})
 }
@@ -3991,18 +3997,18 @@ func (msgs Messages) CompanionLineNoAPK() string {
 	return Catalog.Format(msgs.locale, "companionLineNoAPK", nil)
 }
 
-// CompanionLineOff says "Pinky Companion is installed but off"
+// CompanionLineOff says "Pinky couldn't turn on Pinky Companion"
 // in the language the app shows.
 //
-// Settings › Phones: a phone's line about Pinky Companion when the app is
-// installed but its service is off.
+// Settings › Phones: a phone's line about Pinky Companion when its
+// service did not come on the last time Pinky tried.
 func CompanionLineOff() string { return In(i18n.Locale()).CompanionLineOff() }
 
-// CompanionLineOff says "Pinky Companion is installed but off"
+// CompanionLineOff says "Pinky couldn't turn on Pinky Companion"
 // in the language of msgs.
 //
-// Settings › Phones: a phone's line about Pinky Companion when the app is
-// installed but its service is off.
+// Settings › Phones: a phone's line about Pinky Companion when its
+// service did not come on the last time Pinky tried.
 func (msgs Messages) CompanionLineOff() string {
 	return Catalog.Format(msgs.locale, "companionLineOff", nil)
 }
@@ -4011,14 +4017,16 @@ func (msgs Messages) CompanionLineOff() string {
 // in the language the app shows.
 //
 // Settings › Phones: a phone's line about Pinky Companion, Pinky's app
-// for the phone, when it runs.
+// for the phone, while its accessibility service is on: an agent works on
+// the phone.
 func CompanionLineOn() string { return In(i18n.Locale()).CompanionLineOn() }
 
 // CompanionLineOn says "Pinky Companion is on"
 // in the language of msgs.
 //
 // Settings › Phones: a phone's line about Pinky Companion, Pinky's app
-// for the phone, when it runs.
+// for the phone, while its accessibility service is on: an agent works on
+// the phone.
 func (msgs Messages) CompanionLineOn() string {
 	return Catalog.Format(msgs.locale, "companionLineOn", nil)
 }
@@ -4039,6 +4047,26 @@ func (msgs Messages) CompanionLineOutdated() string {
 	return Catalog.Format(msgs.locale, "companionLineOutdated", nil)
 }
 
+// CompanionLineReady says "Pinky Companion turns on only while an agent works"
+// in the language the app shows.
+//
+// Settings › Phones: a phone's line about Pinky Companion, Pinky's app
+// for the phone, when it is installed and ready: Pinky turns its
+// accessibility service on only while an agent works on the phone, so that
+// the phone's apps (banking apps check for such services) see it only then.
+func CompanionLineReady() string { return In(i18n.Locale()).CompanionLineReady() }
+
+// CompanionLineReady says "Pinky Companion turns on only while an agent works"
+// in the language of msgs.
+//
+// Settings › Phones: a phone's line about Pinky Companion, Pinky's app
+// for the phone, when it is installed and ready: Pinky turns its
+// accessibility service on only while an agent works on the phone, so that
+// the phone's apps (banking apps check for such services) see it only then.
+func (msgs Messages) CompanionLineReady() string {
+	return Catalog.Format(msgs.locale, "companionLineReady", nil)
+}
+
 // CompanionNotNow says "Not now"
 // in the language the app shows.
 //
@@ -4055,18 +4083,20 @@ func (msgs Messages) CompanionNotNow() string {
 	return Catalog.Format(msgs.locale, "companionNotNow", nil)
 }
 
-// CompanionOnToast says "Pinky Companion is on for {name}"
+// CompanionOnToast says "Pinky Companion is ready on {name}"
 // in the language the app shows.
 //
 // A notice after Pinky installed, updated or turned on Pinky Companion, its
-// app for Android phones. name is the phone's name.
+// app for Android phones, and checked that its service comes on. It is on
+// only while an agent works on the phone. name is the phone's name.
 func CompanionOnToast(name string) string { return In(i18n.Locale()).CompanionOnToast(name) }
 
-// CompanionOnToast says "Pinky Companion is on for {name}"
+// CompanionOnToast says "Pinky Companion is ready on {name}"
 // in the language of msgs.
 //
 // A notice after Pinky installed, updated or turned on Pinky Companion, its
-// app for Android phones. name is the phone's name.
+// app for Android phones, and checked that its service comes on. It is on
+// only while an agent works on the phone. name is the phone's name.
 func (msgs Messages) CompanionOnToast(name string) string {
 	return Catalog.Format(msgs.locale, "companionOnToast", map[string]any{"name": name})
 }
@@ -4101,18 +4131,22 @@ func (msgs Messages) CompanionTurnOn() string {
 	return Catalog.Format(msgs.locale, "companionTurnOn", nil)
 }
 
-// CompanionTurnOnBody says "The app is installed, but its service is off, so agents control the phone the slower way. Pinky can turn it on."
+// CompanionTurnOnBody says "Pinky couldn't turn on the app's service the last time it tried, so agents control the phone the slower way. Try agai…"
 // in the language the app shows.
 //
-// The Pinky Companion card, when the app's service is off: why to turn it
-// on.
+// The Pinky Companion card, when the app's service did not come on the last
+// time Pinky tried (some phones refuse settings changes from the computer):
+// why to try again. Turn on, the button, shows the reason if it fails
+// again.
 func CompanionTurnOnBody() string { return In(i18n.Locale()).CompanionTurnOnBody() }
 
-// CompanionTurnOnBody says "The app is installed, but its service is off, so agents control the phone the slower way. Pinky can turn it on."
+// CompanionTurnOnBody says "Pinky couldn't turn on the app's service the last time it tried, so agents control the phone the slower way. Try agai…"
 // in the language of msgs.
 //
-// The Pinky Companion card, when the app's service is off: why to turn it
-// on.
+// The Pinky Companion card, when the app's service did not come on the last
+// time Pinky tried (some phones refuse settings changes from the computer):
+// why to try again. Turn on, the button, shows the reason if it fails
+// again.
 func (msgs Messages) CompanionTurnOnBody() string {
 	return Catalog.Format(msgs.locale, "companionTurnOnBody", nil)
 }
@@ -18863,6 +18897,28 @@ func (msgs Messages) UpdateCompanionNeedsYou() string {
 	return Catalog.Format(msgs.locale, "updateCompanionNeedsYou", nil)
 }
 
+// UpdateCompanionReplacedToast says "Reinstalled Pinky Companion on {phone} with Pinky's private signing key"
+// in the language the app shows.
+//
+// A toast after Pinky replaced the companion app on a phone by itself: the
+// installed one was signed with another key (the public one of builds until
+// 2026-11-08), so Pinky removed it and installed its own, signed with
+// Pinky's private key.
+func UpdateCompanionReplacedToast(phone string) string {
+	return In(i18n.Locale()).UpdateCompanionReplacedToast(phone)
+}
+
+// UpdateCompanionReplacedToast says "Reinstalled Pinky Companion on {phone} with Pinky's private signing key"
+// in the language of msgs.
+//
+// A toast after Pinky replaced the companion app on a phone by itself: the
+// installed one was signed with another key (the public one of builds until
+// 2026-11-08), so Pinky removed it and installed its own, signed with
+// Pinky's private key.
+func (msgs Messages) UpdateCompanionReplacedToast(phone string) string {
+	return Catalog.Format(msgs.locale, "updateCompanionReplacedToast", map[string]any{"phone": phone})
+}
+
 // UpdateCompanionToast says "Updated Pinky Companion on {phone}"
 // in the language the app shows.
 //
@@ -19373,6 +19429,26 @@ func UpdateNewsCompanionLine(phone string, version string) string {
 // updated on a phone.
 func (msgs Messages) UpdateNewsCompanionLine(phone string, version string) string {
 	return Catalog.Format(msgs.locale, "updateNewsCompanionLine", map[string]any{"phone": phone, "version": version})
+}
+
+// UpdateNewsCompanionReplaced says "Reinstalled on {phone} as {version}, signed with Pinky's private key. The earlier build was signed with a public key,…"
+// in the language the app shows.
+//
+// What's new, under the Pinky Companion heading: Pinky replaced the
+// companion app on a phone with a build signed with its private key,
+// because the installed one was signed with a public key.
+func UpdateNewsCompanionReplaced(phone string, version string) string {
+	return In(i18n.Locale()).UpdateNewsCompanionReplaced(phone, version)
+}
+
+// UpdateNewsCompanionReplaced says "Reinstalled on {phone} as {version}, signed with Pinky's private key. The earlier build was signed with a public key,…"
+// in the language of msgs.
+//
+// What's new, under the Pinky Companion heading: Pinky replaced the
+// companion app on a phone with a build signed with its private key,
+// because the installed one was signed with a public key.
+func (msgs Messages) UpdateNewsCompanionReplaced(phone string, version string) string {
+	return Catalog.Format(msgs.locale, "updateNewsCompanionReplaced", map[string]any{"phone": phone, "version": version})
 }
 
 // UpdateNewsCompanionUpdated says "Pinky Companion was updated"

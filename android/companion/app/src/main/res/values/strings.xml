@@ -2,10 +2,10 @@
 <resources>
     <string name="app_name">Pinky Companion</string>
     <string name="service_label">Pinky Companion</string>
-    <string name="service_description">Lets Pinky on your computer read the controls on the screen and type text while an agent works on this phone. Pinky turns this service on over USB debugging, either for the length of a task or, when you install the companion from Pinky, until you turn it off here. A service Pinky turned on only for a task turns itself off a few minutes after Pinky disconnects.</string>
+    <string name="service_description">Lets Pinky on your computer read the controls on the screen and type text while an agent works on this phone. Pinky turns this service on over USB debugging only while an agent works here, and off again a few seconds after the task ends or you take over; it also turns itself off a minute after Pinky disconnects. Banking and other apps can see an accessibility service that is on. Turning it off here lasts until the next task; to keep Pinky from using it at all, uninstall Pinky Companion: Pinky works without it, only more slowly.</string>
 
     <string name="title">Pinky Companion</string>
-    <string name="intro">Pinky turns this service on through adb, for the length of a task or, when you install the companion from Pinky, until you turn it off in Android\'s accessibility settings. Nothing here needs to be set up by hand.</string>
+    <string name="intro">Pinky turns this service on through adb only while an agent works on this phone, and off again afterwards. Nothing here needs to be set up by hand.</string>
     <string name="status_heading">Status</string>
     <string name="status_service_on">Accessibility service: on</string>
     <string name="status_service_off">Accessibility service: off</string>

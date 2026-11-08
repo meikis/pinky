@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The development build (app.pinky.companion.dev), which builds from the
+     source carry, may be installed beside a release: its own names tell
+     the two apart in Android's settings. -->
+<resources>
+    <string name="app_name">Pinky Companion (dev)</string>
+    <string name="service_label">Pinky Companion (dev)</string>
+    <string name="title">Pinky Companion (dev)</string>
+</resources>

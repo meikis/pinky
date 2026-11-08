@@ -211,7 +211,9 @@ func (a *API) InstallCompanion(ctx context.Context, deviceID string) error {
 		return err
 	}
 	if d != nil {
-		d.companion = driver.CompanionOn
+		// Its service is off again after the check: Pinky turns it on only
+		// while an agent works.
+		d.companion = driver.CompanionReady
 		a.installs = append(a.installs, deviceID)
 	}
 	a.mu.Unlock()

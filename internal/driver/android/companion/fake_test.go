@@ -62,7 +62,7 @@ func newFakePhone(t *testing.T) *fakePhone {
 func (p *fakePhone) on() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return slices.ContainsFunc(parseServices(p.settings[settingKey]), isOurs)
+	return slices.ContainsFunc(parseServices(p.settings[settingKey]), New(nil).isOurs)
 }
 
 func (p *fakePhone) serve() {
@@ -221,8 +221,8 @@ func (p *fakePhone) Install(_ context.Context, apk string) error {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if !slices.Contains(p.installed, Package) {
-		p.installed = append(p.installed, Package)
+	if !slices.Contains(p.installed, Release.Package) {
+		p.installed = append(p.installed, Release.Package)
 	}
 	p.apkSum = sum
 	p.installs++

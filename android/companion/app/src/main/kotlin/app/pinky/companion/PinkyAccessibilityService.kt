@@ -15,9 +15,12 @@ import android.view.accessibility.AccessibilityEvent
 import org.json.JSONObject
 
 /**
- * The accessibility service Pinky turns on over adb for the length of a
- * task. While it is connected it serves the companion protocol (see
- * docs/notes/companion-protocol.md); it never changes what the phone does.
+ * The accessibility service Pinky turns on over adb only while an agent
+ * works on the phone, and off again afterwards: the phone's apps can see an
+ * accessibility service that is on, and banking apps refuse to sign in next
+ * to one that is not from an app store. While it is connected it serves the
+ * companion protocol (see docs/notes/companion-protocol.md); it never
+ * changes what the phone does.
  */
 class PinkyAccessibilityService : AccessibilityService() {
 
@@ -45,7 +48,8 @@ class PinkyAccessibilityService : AccessibilityService() {
 
     // What config set, kept until the service is turned off, so that it
     // survives the service restarting: a reboot, an app update, a
-    // uiautomator dump. Pinky's Install keeps the service on this way.
+    // uiautomator dump. Pinky until 2026-11-08 kept the service on for
+    // good this way (idle_disable_ms 0).
     private val prefs: SharedPreferences by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
 
     override fun onCreate() {
@@ -162,8 +166,9 @@ class PinkyAccessibilityService : AccessibilityService() {
         events.closeAll()
     }
 
-    // A backstop for a gateway that crashed or lost the phone without
-    // turning the service off: no client for idleDisableMs turns it off.
+    // A backstop for a Pinky that crashed or lost the phone without turning
+    // the service off: no client for idleDisableMs turns it off. While an
+    // agent works, Pinky keeps an event subscription open.
     private val watchdog = object : Runnable {
         override fun run() {
             val s = server ?: return
@@ -180,7 +185,7 @@ class PinkyAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "PinkyService"
-        const val DEFAULT_IDLE_DISABLE_MS = 3 * 60_000L
+        const val DEFAULT_IDLE_DISABLE_MS = 60_000L
 
         // Whether the last unbind left the service turned on (a restart),
         // across service instances in this process. Main thread only.

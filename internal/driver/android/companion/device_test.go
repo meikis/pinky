@@ -24,8 +24,6 @@ import (
 	"github.com/DIYgod/pinky/internal/screen"
 )
 
-const debugInput = Package + ":id/debug_input"
-
 func TestDeviceCompanion(t *testing.T) {
 	id := os.Getenv("PINKY_DEVICE")
 	if id == "" {
@@ -38,8 +36,13 @@ func TestDeviceCompanion(t *testing.T) {
 	if _, err := os.Stat(apk); err != nil {
 		t.Skipf("no APK at %s; build it with ./gradlew assembleDebug in android/companion", apk)
 	}
+	app, _, err := APKVersion(apk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	debugInput := app.Package + ":id/debug_input"
 	run := &ExecRunner{Serial: id}
-	c := New(run)
+	c := NewFor(run, app)
 	defer c.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -102,7 +105,7 @@ func TestDeviceCompanion(t *testing.T) {
 
 	t.Run("SetText", func(t *testing.T) {
 		wake(t, run)
-		shell(t, run, "am start -W -n "+Package+"/.MainActivity")
+		shell(t, run, "am start -W -n "+app.Package+"/"+Release.Package+".MainActivity")
 		settle(t, c)
 		text := "\u4f60\u597d\uff0cPinky \u4e16\u754c \U0001f389"
 		r, err := c.SetText(ctx, Target{ID: debugInput}, text, SetTextOptions{})
@@ -151,7 +154,7 @@ func TestDeviceCompanion(t *testing.T) {
 		}
 
 		// Password fields take text but never report it.
-		r, err = c.SetText(ctx, Target{ID: Package + ":id/debug_password"}, "s3cret-\u5bc6", SetTextOptions{})
+		r, err = c.SetText(ctx, Target{ID: app.Package + ":id/debug_password"}, "s3cret-\u5bc6", SetTextOptions{})
 		if err != nil || r.Text != "" {
 			t.Fatalf("password: %+v, %v", r, err)
 		}
@@ -159,14 +162,14 @@ func TestDeviceCompanion(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, pw := findNode(tr, Package+":id/debug_password"); pw == nil || !pw.Password || pw.Text != "" {
+		if _, pw := findNode(tr, app.Package+":id/debug_password"); pw == nil || !pw.Password || pw.Text != "" {
 			t.Fatalf("password node: %+v", pw)
 		}
 		if _, err := c.SetText(ctx, Target{Point: &screen.Point{X: 1, Y: 1}}, "x", SetTextOptions{}); !errors.Is(err, driver.ErrNotFound) {
 			t.Errorf("set_text at an empty spot: %v", err)
 		}
 		// Leave the page as it was.
-		for _, idName := range []string{debugInput, Package + ":id/debug_password"} {
+		for _, idName := range []string{debugInput, app.Package + ":id/debug_password"} {
 			if _, err := c.SetText(ctx, Target{ID: idName}, "", SetTextOptions{}); err != nil {
 				t.Errorf("clear %s: %v", idName, err)
 			}
@@ -187,7 +190,7 @@ func TestDeviceCompanion(t *testing.T) {
 		defer sub.Close()
 		text := "Pinky \u6d4b\u8bd5 \u2713"
 		sent := time.Now()
-		shell(t, run, "am start -n "+Package+"/.MainActivity --es toast "+shellQuote(text))
+		shell(t, run, "am start -n "+app.Package+"/"+Release.Package+".MainActivity --es toast "+shellQuote(text))
 		for ev := range sub.C() {
 			if ev.Kind == EventToast && ev.Text == text {
 				if d := ev.Time.Sub(sent); d < -2*time.Second || d > 5*time.Second {

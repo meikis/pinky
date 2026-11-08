@@ -37,7 +37,10 @@ type device struct {
 	person bool
 	// personInput is true once the person used the phone during a takeover.
 	personInput bool
-	locked      bool
+	// working is what the driver was last told (driver.WorkWatcher): an
+	// agent works on the phone. workSent: dev was told at all.
+	working, workSent bool
+	locked            bool
 	// inflight cancels the driver call of the action in progress, so a
 	// takeover interrupts it.
 	inflight context.CancelFunc

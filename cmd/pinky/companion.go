@@ -50,11 +50,15 @@ func runCompanion(args []string) error {
 	if err != nil {
 		return err
 	}
-	if !res.Installed {
-		fmt.Printf("%s already has this companion build; its service is on.\n", info.Name)
-		return nil
+	switch {
+	case !res.Installed:
+		fmt.Printf("%s already has this companion build, and its service comes on.\n", info.Name)
+	case res.Replaced:
+		fmt.Printf("Replaced the companion on %s, which was signed with another key, and checked that its service comes on.\n", info.Name)
+	default:
+		fmt.Printf("Installed the companion on %s and checked that its service comes on.\n", info.Name)
 	}
-	fmt.Printf("Installed the companion on %s and turned its accessibility service on.\n", info.Name)
+	fmt.Println("Pinky turns the service on only while an agent works on the phone, and off again afterwards.")
 	return nil
 }
 

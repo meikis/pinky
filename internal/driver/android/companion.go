@@ -8,23 +8,37 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/DIYgod/pinky/internal/driver"
 	"github.com/DIYgod/pinky/internal/driver/android/companion"
 	"github.com/DIYgod/pinky/internal/screen"
 )
 
 // The companion app (android/companion) gives a 30 ms element tree, events,
-// ACTION_SET_TEXT input and an accessibility settle signal. The driver uses
-// it whenever the app is installed: it turns the app's accessibility
-// service on at the first Observe or Type, keeps an event subscription
-// open while it is on, and turns it off again (restoring the setting
-// exactly) when the device closes or after a minute without driver calls.
+// ACTION_SET_TEXT input and an accessibility settle signal. Its
+// accessibility service is on only while an agent works on the phone: the
+// phone's apps can see an accessibility service that is on, and banking
+// apps refuse to sign in next to one that is not from an app store. The
+// gateway says when an agent works (driver.WorkWatcher): the driver turns
+// the service on as a task starts, so that the task's first read finds it
+// ready, and off a few seconds after the task ends or the person takes
+// over, or a minute after the agent's last call. While no agent works,
+// reads do without it (uiautomator), except for unlocking the phone from
+// the computer, and nothing turns it on. Callers that never call
+// AgentWorking (androidctl, tests) turn it on at their first read and off
+// after a minute without calls. Turning it off restores the setting
+// exactly; a service someone else turned on goes off too, unless another
+// client still uses it.
+//
 // Without the app, or when it is too old or does not answer, the driver
 // falls back to uiautomator and the keyboard. The two never run together:
 // a uiautomator dump unbinds every accessibility service.
 
 const (
-	// companionIdle is how long the service stays on without driver calls.
+	// companionIdle is how long the service stays on without driver calls
+	// while an agent works.
 	companionIdle = 60 * time.Second
+	// companionWarm bounds turning the service on as a task starts.
+	companionWarm = 20 * time.Second
 	// companionMissingRetry is how long to wait before looking for an app
 	// that was not installed.
 	companionMissingRetry = 5 * time.Minute
@@ -36,20 +50,33 @@ const (
 	maxPendingEvents = 20
 )
 
+// companionRest is how long the service stays on without driver calls once
+// no agent works: the task ended, or the person took over. The reads right
+// after a task (its recording's last frame) still find it on. A variable
+// for tests.
+var companionRest = 5 * time.Second
+
 // companionLink is a device's connection to its companion app.
 type companionLink struct {
 	mu      sync.Mutex // serializes turning the service on and off
 	client  *companion.Client
-	on      bool      // Enable succeeded and the subscription runs
+	on      bool      // the service is on for the driver and the subscription runs
 	checked bool      // installed was looked up
 	have    bool      // the app is installed
 	version string    // its version name
 	retryAt time.Time // do not try again before this
 	reason  string    // why the companion is not used, logged once
+	// failed is why the service did not come on the last time the driver
+	// tried, for CompanionState; nil once it came on.
+	failed  error
 	idle    *time.Timer
 	lastUse atomic.Int64 // Unix nanoseconds of the last driver call
 	sub     *companion.Subscription
 	stop    context.CancelFunc // ends the subscription's context
+
+	// gated: the gateway reports when an agent works (AgentWorking), and
+	// the service is turned on only while one does; working: one does.
+	gated, working atomic.Bool
 
 	info *companion.Info // the app's ping while it is on
 
@@ -59,17 +86,32 @@ type companionLink struct {
 	live   bool              // the subscription is delivering
 }
 
+// companionUse is what a caller wants the companion for.
+type companionUse int
+
+const (
+	// forAgent: an agent's read or input. While no agent works, the
+	// service stays off and the caller does without it.
+	forAgent companionUse = iota
+	// forBackground: a background display, which has no uiautomator to
+	// fall back on; it exists only for a task. An installed app is tried
+	// again at once instead of after the wait that follows a failure.
+	forBackground
+	// forUnlock: the person unlocking the phone from the computer, on its
+	// lock screen, which reads the PIN pad several times: the service
+	// comes on for it and goes off a few seconds after.
+	forUnlock
+)
+
 // companionClient returns the companion client with its service on, or nil
 // when the driver should do without it. It turns the service on at the
-// first call after the device opened or went idle.
+// first call after the device opened or went idle, while an agent works.
 func (d *Device) companionClient(ctx context.Context) *companion.Client {
-	return d.companionClientFor(ctx, false)
+	return d.companionClientFor(ctx, forAgent)
 }
 
-// companionClientFor is companionClient; with now set it tries an
-// installed app again at once instead of after the wait that follows a
-// failure: background displays have no uiautomator to fall back on.
-func (d *Device) companionClientFor(ctx context.Context, now bool) *companion.Client {
+// companionClientFor is companionClient for a use.
+func (d *Device) companionClientFor(ctx context.Context, use companionUse) *companion.Client {
 	k := &d.comp
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -83,29 +125,51 @@ func (d *Device) companionClientFor(ctx context.Context, now bool) *companion.Cl
 		// The subscription ended: the service stopped or was turned off.
 		d.companionOffLocked("its event stream ended")
 	}
-	if time.Now().Before(k.retryAt) && !(now && k.checked && k.have) {
+	if use == forAgent && k.gated.Load() && !k.working.Load() {
+		return nil // no agent works on the phone: the service stays off
+	}
+	if time.Now().Before(k.retryAt) && !(use == forBackground && k.checked && k.have) {
 		return nil
 	}
+	if err := d.companionOnLocked(ctx); err != nil {
+		wait := companionFailRetry
+		if errors.Is(err, errCompanionMissing) {
+			wait = companionMissingRetry
+		}
+		d.companionUnusableLocked(wait, err.Error())
+		return nil
+	}
+	return k.client
+}
+
+// errCompanionMissing: the app is not installed.
+var errCompanionMissing = errors.New("its app is not installed")
+
+// companionOnLocked turns the service on, checks that it answers and
+// subscribes to its events. A failure to turn it on is kept for
+// CompanionState.
+func (d *Device) companionOnLocked(ctx context.Context) error {
+	k := &d.comp
 	if k.client == nil {
-		k.client = companion.New(adbRunner{c: d.client, serial: d.info.ID})
+		k.client = d.newCompanion()
 	}
 	if !k.checked {
 		version, ok, err := k.client.Installed(ctx)
 		if err != nil {
-			d.companionUnusableLocked(companionFailRetry, fmt.Sprintf("cannot tell whether it is installed: %v", err))
-			return nil
+			return fmt.Errorf("cannot tell whether it is installed: %w", err)
 		}
 		k.checked, k.have, k.version = true, ok, version
 	}
 	if !k.have {
 		k.checked = false // look again after the wait
-		d.companionUnusableLocked(companionMissingRetry, "app.pinky.companion is not installed")
-		return nil
+		return fmt.Errorf("%s: %w", k.client.App().Package, errCompanionMissing)
 	}
 	start := time.Now()
 	if err := k.client.Enable(ctx); err != nil {
-		d.companionUnusableLocked(companionFailRetry, fmt.Sprintf("its service did not start: %v", err))
-		return nil
+		if ctx.Err() == nil {
+			k.failed = err
+		}
+		return fmt.Errorf("its service did not start: %w", err)
 	}
 	info, err := k.client.Ping(ctx)
 	if err == nil && info.Protocol != companion.ProtocolVersion {
@@ -116,27 +180,53 @@ func (d *Device) companionClientFor(ctx context.Context, now bool) *companion.Cl
 	}
 	if err != nil {
 		d.disableLocked()
-		d.companionUnusableLocked(companionFailRetry, fmt.Sprintf("version %s: %v", k.version, err))
-		return nil
+		if ctx.Err() == nil {
+			k.failed = err
+		}
+		return fmt.Errorf("version %s: %w", k.version, err)
 	}
 	k.on = true
 	k.info = info
 	k.reason = ""
+	k.failed = nil
 	d.used()
 	if k.idle == nil {
-		k.idle = time.AfterFunc(companionIdle, d.companionIdleCheck)
+		k.idle = time.AfterFunc(d.companionLimit(), d.companionIdleCheck)
 	} else {
-		k.idle.Reset(companionIdle)
+		k.idle.Reset(d.companionLimit())
 	}
 	d.cfg.logf("android: %s: companion %s on in %v", d.info.ID, info.Version, time.Since(start).Round(time.Millisecond))
-	return k.client
+	return nil
+}
+
+// newCompanion returns a client for the build of the companion this Pinky
+// carries.
+func (d *Device) newCompanion() *companion.Client {
+	return companion.NewFor(d.companionRunner(), companionApp())
+}
+
+// companionRunner runs the companion's adb commands.
+func (d *Device) companionRunner() companion.Runner {
+	if d.compRun != nil {
+		return d.compRun
+	}
+	return adbRunner{c: d.client, serial: d.info.ID}
 }
 
 // used notes a driver call; a minute without one turns the companion off.
 func (d *Device) used() { d.comp.lastUse.Store(time.Now().UnixNano()) }
 
+// companionLimit is how long the service stays on without driver calls.
+func (d *Device) companionLimit() time.Duration {
+	if k := &d.comp; k.gated.Load() && !k.working.Load() {
+		return companionRest
+	}
+	return companionIdle
+}
+
 // companionIdleCheck runs when the idle timer fires: it turns the companion
-// off after a minute without driver calls, or waits for the rest of it.
+// off after a minute without driver calls (a few seconds once no agent
+// works), or waits for the rest of it.
 func (d *Device) companionIdleCheck() {
 	k := &d.comp
 	k.mu.Lock()
@@ -144,11 +234,91 @@ func (d *Device) companionIdleCheck() {
 	if !k.on {
 		return
 	}
-	if since := time.Since(time.Unix(0, k.lastUse.Load())); since < companionIdle {
-		k.idle.Reset(companionIdle - since)
+	limit := d.companionLimit()
+	if since := time.Since(time.Unix(0, k.lastUse.Load())); since < limit {
+		k.idle.Reset(limit - since)
 		return
 	}
-	d.companionOffLocked("a minute without driver calls")
+	why := "a minute without driver calls"
+	if limit == companionRest {
+		why = "no agent works on the phone"
+	}
+	d.companionOffLocked(why)
+}
+
+// AgentWorking implements driver.WorkWatcher. When an agent starts working
+// it turns the service on in the background, so that the task's first
+// read finds it ready; when the agent stops, it turns it off a few seconds
+// after the last call. The first call also turns off a service that was
+// left on with nobody using it.
+func (d *Device) AgentWorking(on bool) {
+	k := &d.comp
+	first := !k.gated.Swap(true)
+	if k.working.Swap(on) == on && !first {
+		return
+	}
+	if on {
+		go d.warmCompanion()
+	} else {
+		go d.restCompanion(first)
+	}
+}
+
+// warmCompanion turns the service on as an agent starts working.
+func (d *Device) warmCompanion() {
+	ctx, cancel := context.WithTimeout(context.Background(), companionWarm)
+	defer cancel()
+	if d.comp.working.Load() {
+		d.companionClient(ctx)
+	}
+}
+
+// restCompanion shortens the service's time without calls once no agent
+// works and, at the first call, turns off a service left on before.
+func (d *Device) restCompanion(first bool) {
+	k := &d.comp
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.working.Load() {
+		return
+	}
+	switch {
+	case k.on:
+		if k.idle != nil {
+			k.idle.Reset(companionRest) // measured from the last call
+		}
+	case first:
+		d.quietLocked()
+	}
+}
+
+// quietLocked turns the service off when it is on although no agent works
+// and no client uses it: Pinky until 2026-11-08 kept it on for good once
+// installed. One that another client uses, or that the phone does not let
+// the computer turn off, stays on.
+func (d *Device) quietLocked() {
+	k := &d.comp
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if time.Now().Before(k.retryAt) {
+		return
+	}
+	if k.client == nil {
+		k.client = d.newCompanion()
+	}
+	listed, err := k.client.Enabled(ctx)
+	if err != nil || !listed {
+		return
+	}
+	if others := companionPeers(ctx, k.client); others {
+		d.cfg.logf("android: %s: another client is using the companion; leaving its service on", d.info.ID)
+		return
+	}
+	if err := k.client.ForceDisable(ctx); err != nil {
+		d.cfg.logf("android: %s: turning off the companion's service, which was on with no agent working: %v", d.info.ID, err)
+		return
+	}
+	d.cfg.logf("android: %s: turned off the companion's service, which was on with no agent working; Pinky turns it on only while an agent works", d.info.ID)
 }
 
 // closeCompanion turns the companion off for good, when the device closes.
@@ -302,8 +472,12 @@ func (d *Device) companionOffLocked(why string) {
 	d.cfg.logf("android: %s: companion off: %s", d.info.ID, why)
 }
 
-// disableLocked ends the subscription and restores the accessibility
-// setting exactly as Enable found it.
+// disableLocked ends the subscription and turns the service off: exactly
+// as Enable found the setting when the driver turned it on, or by removing
+// only Pinky's entry when it was on already (an older Pinky kept it on for
+// good, or another client turned it on for its reads). One that another
+// client still uses stays on: several drivers (two Pinky processes, Pinky
+// and androidctl) may share it, and the last to leave turns it off.
 func (d *Device) disableLocked() {
 	k := &d.comp
 	if k.idle != nil {
@@ -325,23 +499,13 @@ func (d *Device) disableLocked() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	// Several drivers (two Pinky processes, Pinky and androidctl) may share
-	// the service. The last one to leave turns it off: exactly as found
-	// when it turned it on itself, or by removing only Pinky's entry when
-	// another driver turned it on for its reads. A service the person
-	// turned on for good (Install sets idle_disable_ms 0, which the app
-	// keeps) stays on, and so does one another client still uses.
-	enabledHere := k.client.EnabledForTask()
-	others, keptOn, known := companionPeers(ctx, k.client)
 	var err error
 	switch {
-	case others:
-		if enabledHere || !keptOn {
-			d.cfg.logf("android: %s: another client is using the companion; leaving its service on", d.info.ID)
-		}
-	case enabledHere:
+	case companionPeers(ctx, k.client):
+		d.cfg.logf("android: %s: another client is using the companion; leaving its service on", d.info.ID)
+	case k.client.EnabledForTask():
 		err = k.client.Disable(ctx)
-	case known && !keptOn:
+	default:
 		err = k.client.ForceDisable(ctx)
 	}
 	if err != nil {
@@ -351,31 +515,44 @@ func (d *Device) disableLocked() {
 }
 
 // companionPeers asks the app whether clients other than this one's
-// request connection are connected, and whether the person turned the
-// service on for good (idle_disable_ms 0). The event subscription was just
+// request connection are connected. The event subscription was just
 // closed, and the app may count it for a moment, so it asks a few times.
-// When the app does not answer, there is nobody to cut off, and known is
-// false: whether the person wants it on cannot be told.
-func companionPeers(ctx context.Context, c *companion.Client) (others, keptOn, known bool) {
+// When the app does not answer, there is nobody to cut off.
+func companionPeers(ctx context.Context, c *companion.Client) bool {
 	for i := 0; i < 3; i++ {
 		if i > 0 {
 			if sleepCtx(ctx, 100*time.Millisecond) != nil {
-				return false, keptOn, known
+				return false
 			}
 		}
 		pctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		info, err := c.Ping(pctx)
 		cancel()
-		if err != nil {
-			return false, keptOn, known
-		}
-		keptOn, known = info.IdleDisableMS == 0, true
-		if info.Connections <= 1 {
-			return false, keptOn, true
+		if err != nil || info.Connections <= 1 {
+			return false
 		}
 	}
-	return true, keptOn, true
+	return true
 }
+
+// companionInUse reports whether the driver has the service on.
+func (d *Device) companionInUse() bool {
+	k := &d.comp
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.on
+}
+
+// companionFailure is why the service did not come on the last time the
+// driver tried; nil when it did, or before any try.
+func (d *Device) companionFailure() error {
+	k := &d.comp
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.failed
+}
+
+var _ driver.WorkWatcher = (*Device)(nil)
 
 // observeCompanion reads the screen from the companion, with the lock and
 // keyboard state from the window manager as the uiautomator path has them.

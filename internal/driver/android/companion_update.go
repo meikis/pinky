@@ -13,18 +13,17 @@ import (
 
 // UpdateCompanion implements driver.CompanionUpdater: it installs the
 // bundled companion APK over an older installed build, as `pm install -r`
-// does, without asking anyone, and keeps the app's accessibility service
-// as it was. Android keeps enabled_accessibility_services across an update
-// of the same package, and the app its own settings; when the service was
-// on and is not listed or does not answer afterwards, it is turned on
-// again through TurnOn, the path SetUpCompanion uses. A service that was off, or on only for the driver's
-// own reads, is left to the driver. It refuses with driver.ErrNeedsPerson
+// does, without asking anyone. A build signed with another key, such as
+// one signed with the public key every build had until 2026-11-08, cannot
+// be updated in place: it is turned off, uninstalled (Pinky's own package
+// only) and replaced. Either way the service is off afterwards, as after
+// any task: Pinky turns it on while an agent works on the phone, and the
+// person may be using the phone now. It refuses with driver.ErrNeedsPerson
 // when the phone would show a dialog (Google Play Protect checks adb
-// installs) or the installed app is signed with another key, and does
-// nothing while the driver has the service on for a task's reads.
+// installs), and does nothing while the driver has the service on.
 func (d *Device) UpdateCompanion(ctx context.Context) (driver.CompanionUpdate, error) {
 	var res driver.CompanionUpdate
-	c := companion.New(adbRunner{c: d.client, serial: d.info.ID})
+	c := d.newCompanion()
 	defer c.Close()
 	before, installed, err := c.InstalledVersion(ctx)
 	if err != nil {
@@ -37,59 +36,60 @@ func (d *Device) UpdateCompanion(ctx context.Context) (driver.CompanionUpdate, e
 	if err != nil {
 		return res, fmt.Errorf("%w: %w", err, driver.ErrUnsupported)
 	}
-	bundled, err := apkVersion(apk)
+	_, bundled, err := apkVersion(apk)
 	if err != nil {
 		return res, err
 	}
 	res.From, res.To = versionLine(before), versionLine(bundled)
-	if before.Code <= 0 || before.Code >= bundled.Code {
+	replace := before.SignedElsewhere(bundled)
+	if !replace && (before.Code <= 0 || before.Code >= bundled.Code) {
 		res.To = res.From
 		res.ServiceOn, _ = c.Enabled(ctx)
 		return res, nil
 	}
-	if d.companionForTask() {
+	if d.companionInUse() {
 		return res, errCompanionBusy
 	}
-	if asks, why := installAsks(ctx, adbRunner{c: d.client, serial: d.info.ID}); asks {
+	if asks, why := installAsks(ctx, d.companionRunner()); asks {
 		return res, fmt.Errorf("%s: %w", why, driver.ErrNeedsPerson)
-	}
-	wasOn, err := c.Enabled(ctx)
-	if err != nil {
-		return res, wrapErr(err)
 	}
 	// The app's process goes away during the install: close the driver's
 	// link to it first, so its reads fall back cleanly, and look at the
 	// app afresh afterwards.
 	d.companionOff("updating the app")
-	if err := c.Install(ctx, apk); err != nil {
-		if strings.Contains(err.Error(), "INSTALL_FAILED_UPDATE_INCOMPATIBLE") {
-			return res, fmt.Errorf("the installed companion is signed with another key and has to be replaced: %w", driver.ErrNeedsPerson)
+	if !replace {
+		err = c.Install(ctx, apk)
+		replace = err != nil && strings.Contains(err.Error(), "INSTALL_FAILED_UPDATE_INCOMPATIBLE")
+		if err != nil && !replace {
+			return res, wrapErr(err)
 		}
-		return res, wrapErr(err)
+	}
+	if replace {
+		d.cfg.logf("android: %s: the installed companion is signed with %s; replacing it", d.info.ID, signerLine(before.Signer))
+		if err := d.replaceCompanion(ctx, c, apk); err != nil {
+			return res, err
+		}
+		res.Replaced = true
+		res.OldPublicKey = before.Signer == companion.OldPublicSigner
 	}
 	res.Updated = true
-	d.cfg.logf("android: %s: updated the companion %s -> %s (service on before: %v)", d.info.ID, res.From, res.To, wasOn)
 	k := &d.comp
 	k.mu.Lock()
 	k.checked = false
 	k.retryAt = time.Time{}
 	k.mu.Unlock()
-	if !wasOn {
-		return res, nil
+	// Android keeps a service listed across an update of the same package
+	// and binds the new build: one that an older Pinky kept on for good
+	// goes off, unless another client uses it.
+	if listed, err := c.Enabled(ctx); err == nil && listed {
+		if answers(ctx, c, 10*time.Second) && companionPeers(ctx, c) {
+			res.ServiceOn = true
+		} else if err := c.ForceDisable(ctx); err != nil {
+			d.cfg.logf("android: %s: turning the updated companion's service off: %v", d.info.ID, err)
+			res.ServiceOn = true
+		}
 	}
-	// It was on, and Android keeps it listed across the update and binds
-	// the new build by itself; the app keeps its own settings (how long it
-	// stays on without a client) too. Wait for it to answer, and change
-	// nothing.
-	if listed, err := c.Enabled(ctx); err == nil && listed && answers(ctx, c, 10*time.Second) {
-		res.ServiceOn = true
-		return res, nil
-	}
-	// Android dropped it: turn it on again through the person's path.
-	if err := c.TurnOn(ctx); err != nil {
-		return res, fmt.Errorf("updated the companion, but its service did not come back on: %w", wrapErr(err))
-	}
-	res.ServiceOn = true
+	d.cfg.logf("android: %s: updated the companion %s -> %s (replaced: %v)", d.info.ID, res.From, res.To, res.Replaced)
 	return res, nil
 }
 
@@ -145,7 +145,7 @@ func installAsks(ctx context.Context, run companion.Runner) (bool, string) {
 }
 
 // errCompanionBusy: the driver has the service on for a task's reads, which
-// end within a minute of the task; the update waits for that.
+// end within seconds of the task; the update waits for that.
 var errCompanionBusy = errors.New("android: the driver is using the companion app; try again in a minute")
 
 var _ driver.CompanionUpdater = (*Device)(nil)

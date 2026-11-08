@@ -498,6 +498,7 @@ func (g *Gateway) newLeaseLocked(s *Session, d *device, title string, apps []str
 		t.state = TaskPaused
 		l.tookOverSeen = true
 	}
+	g.noteWorkLocked(d)
 	d.events = nil
 	s.leases[d.id] = l
 	s.used = appendUniq(s.used, d.id)

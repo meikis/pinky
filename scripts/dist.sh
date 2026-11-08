@@ -2,7 +2,10 @@
 # Builds what a release of Pinky ships, for scripts/release.sh and the
 # release workflow (see docs/RELEASING.md):
 #
-#   scripts/dist.sh companion <out>   the companion APK, <out>/pinky-companion.apk
+#   scripts/dist.sh companion <out>   the companion APK, <out>/pinky-companion.apk:
+#                                     the release build, signed with Pinky's
+#                                     release key, or without the key the
+#                                     development build (never to publish)
 #   scripts/dist.sh darwin <out>      Pinky.app for Apple silicon and Intel Macs,
 #                                     signed with the Developer ID, notarized and
 #                                     stapled: pinky-<version>-darwin-<arch>.zip
@@ -31,8 +34,13 @@
 #   NOTARY_KEYCHAIN  the keychain that holds it (default: the login keychain)
 #   FFMPEG_CACHE     where FFmpeg's builds are kept (default build/ffmpeg-dist)
 #   ADB_CACHE        where adb's builds are kept (default build/adb-dist)
+#   PINKY_COMPANION_KEYSTORE, PINKY_COMPANION_KEYSTORE_PASSWORD
+#                    Pinky's release key for the companion APK (a PKCS12
+#                    keystore and its password), which only the release
+#                    workflow has, in its secrets: see docs/RELEASING.md
 #   STRICT           1 stops rather than leave out what a release must have:
-#                    the companion APK, the Windows installer, notarization,
+#                    the companion APK signed with the release key, the
+#                    Windows installer, notarization,
 #                    FFmpeg's assembly for Intel Macs, FFmpeg for Windows and
 #                    Linux (which needs Docker), adb (which needs CMake on the
 #                    Mac and Docker for Windows and Linux)
@@ -102,6 +110,13 @@ build() {
 	mkdir -p "$stage"
 	apk=${COMPANION_APK:-$out/pinky-companion.apk}
 	if [ -f "$apk" ]; then
+		if [ "$strict" = 1 ]; then
+			# Never ship the development build of the companion.
+			case $(unzip -p "$apk" assets/pinky-companion.json) in
+			*'"package":"app.pinky.companion"'*) ;;
+			*) die "$apk is not the companion's release build (scripts/dist.sh companion with the release key)" ;;
+			esac
+		fi
 		mkdir -p "$resources"
 		cp "$apk" "$resources/pinky-companion.apk"
 	else
@@ -112,15 +127,32 @@ build() {
 	unstage
 }
 
+# companion builds the companion APK. A release carries the release build,
+# app.pinky.companion, signed with Pinky's release key: Android installs an
+# update only when it is signed with the installed app's key, so nobody
+# else can sign one. Without the key, a dry run carries the development
+# build, app.pinky.companion.dev, signed with this machine's own key, which
+# released Pinkys do not use; a strict build stops.
 companion() {
-	say "the companion APK (Pinky $version)"
-	make companion
-	apk=$root/android/companion/app/build/outputs/apk/debug/app-debug.apk
-	# The version Pinky reads from the APK it carries.
+	if [ -n "${PINKY_COMPANION_KEYSTORE:-}" ]; then
+		say "the companion APK (Pinky $version), signed with the release key"
+		[ -f "$PINKY_COMPANION_KEYSTORE" ] || die "PINKY_COMPANION_KEYSTORE names no file"
+		[ -n "${PINKY_COMPANION_KEYSTORE_PASSWORD:-}" ] || die "PINKY_COMPANION_KEYSTORE_PASSWORD is not set"
+		make companion-release
+		apk=$root/android/companion/app/build/outputs/apk/release/app-release.apk
+		pkg=app.pinky.companion
+	else
+		lacking "no release key for the companion (PINKY_COMPANION_KEYSTORE): the apps carry its development build, app.pinky.companion.dev, signed with this machine's key, which must never be published"
+		say "the companion APK (Pinky $version), the development build"
+		make companion
+		apk=$root/android/companion/app/build/outputs/apk/debug/app-debug.apk
+		pkg=app.pinky.companion.dev
+	fi
+	# The build and version Pinky reads from the APK it carries.
 	info=$(unzip -p "$apk" assets/pinky-companion.json)
 	case $info in
-	*"\"version_name\":\"$version\""*) ;;
-	*) die "the APK says $info, not version $version" ;;
+	*"\"package\":\"$pkg\""*"\"version_name\":\"$version\""*) ;;
+	*) die "the APK says $info, not $pkg version $version" ;;
 	esac
 	cp "$apk" "$out/pinky-companion.apk"
 	say "$out/pinky-companion.apk: $info"

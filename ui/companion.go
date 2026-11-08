@@ -18,7 +18,9 @@ import (
 // gets an Install card on its page. Nothing is installed without the
 // person's click, except that with Update automatically on Pinky updates
 // an older companion by itself while the phone is free (companionTick in
-// update.go), keeping its service as it was.
+// update.go), and replaces one signed with another key. Its accessibility
+// service is on only while an agent works on the phone: the phone's apps
+// can see it then, and banking apps refuse to sign in next to one.
 
 // companionState is what the client knows of each phone's companion app.
 type companionState struct {
@@ -61,9 +63,9 @@ func (a *app) companionFor(d gateway.DeviceView) driver.CompanionState {
 	return st.state[id]
 }
 
-// installCompanion installs or updates the phone's companion app and turns
-// its service on. The phone may ask the person to allow the install, so it
-// can take a while.
+// installCompanion installs or updates the phone's companion app and checks
+// that its service comes on. The phone may ask the person to allow the
+// install, so it can take a while.
 func (a *app) installCompanion(d gateway.DeviceView) {
 	ci, ok := a.api.(companionInstaller)
 	st := &a.comp
@@ -161,7 +163,7 @@ func (a *app) companionCard(c *mg.Context, d gateway.DeviceView) {
 		body = locales.CompanionTurnOnBody()
 	default:
 		if !busy {
-			return // on, unknown, or no app to install
+			return // on, ready, unknown, or no app to install
 		}
 		title = locales.CompanionInstallingTitle()
 	}
@@ -228,6 +230,8 @@ func companionLine(cs driver.CompanionState) string {
 	switch cs {
 	case driver.CompanionOn:
 		return locales.CompanionLineOn()
+	case driver.CompanionReady:
+		return locales.CompanionLineReady()
 	case driver.CompanionOff:
 		return locales.CompanionLineOff()
 	case driver.CompanionMissing:

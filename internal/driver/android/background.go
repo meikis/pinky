@@ -361,7 +361,7 @@ func (b *Background) Observe(ctx context.Context, _ driver.ObserveOptions) (*scr
 	if err := b.ready(ctx); err != nil {
 		return nil, err
 	}
-	c := b.d.companionClientFor(ctx, true)
+	c := b.d.companionClientFor(ctx, forBackground)
 	if c == nil {
 		return nil, fmt.Errorf("android: observing a virtual display needs the companion app: %w", driver.ErrUnsupported)
 	}
@@ -371,7 +371,7 @@ func (b *Background) Observe(ctx context.Context, _ driver.ObserveOptions) (*scr
 		// restarted it): turn it on again and read once more, since there
 		// is no other way to read this display.
 		b.d.companionFailed(err)
-		if c = b.d.companionClientFor(ctx, true); c != nil {
+		if c = b.d.companionClientFor(ctx, forBackground); c != nil {
 			t, err = c.Dump(ctx, companion.DumpOptions{Display: b.display})
 		}
 	}
@@ -463,7 +463,7 @@ func (b *Background) Type(ctx context.Context, text string, opt driver.TypeOptio
 	if err := b.ready(ctx); err != nil {
 		return err
 	}
-	if c := b.d.companionClient(ctx); c != nil && b.d.comp.displays() {
+	if c := b.d.companionClientFor(ctx, forBackground); c != nil && b.d.comp.displays() {
 		enter := func() error { return b.l.input(func() error { return b.l.key(keycodeEnter, 0) }) }
 		if done, err := b.d.typeCompanion(ctx, c, text, opt.Append, opt.Submit, b.display, b.recentTap, enter); done {
 			return err

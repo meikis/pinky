@@ -1,9 +1,10 @@
 // Package companion is the Go client for Pinky's Android companion app
 // (android/companion). The app runs an accessibility service that serves
-// line-delimited JSON on the abstract socket @pinky_companion: the window
-// and node tree, ACTION_SET_TEXT input, events and settle waits. The client
-// reaches it through `adb forward`, turns the service on and off over adb
-// for the length of a task, and converts trees to the screen model.
+// line-delimited JSON on an abstract socket (@pinky_companion for the
+// release build): the window and node tree, ACTION_SET_TEXT input, events
+// and settle waits. The client reaches it through `adb forward`, turns the
+// service on and off over adb for the length of a task, and converts trees
+// to the screen model.
 //
 // The protocol is described in docs/notes/companion-protocol.md.
 package companion
@@ -15,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,15 +24,46 @@ import (
 	"github.com/DIYgod/pinky/internal/screen"
 )
 
-// Identity of the companion app.
-const (
-	Package      = "app.pinky.companion"
-	ServiceClass = Package + ".PinkyAccessibilityService"
-	// Component is the service as Android lists it in
-	// enabled_accessibility_services.
-	Component  = Package + "/.PinkyAccessibilityService"
-	SocketName = "pinky_companion"
+// App is one build of the companion app. Releases of Pinky carry the
+// release build, signed with Pinky's private release key; builds from the
+// source carry a development build, signed with the developer's own key
+// under an application id of its own, so that it can never install as an
+// update of a released Companion. The two can be installed side by side.
+type App struct {
+	Package string // the application id
+	Socket  string // the abstract socket its service listens on
+}
+
+// The companion's builds.
+var (
+	Release = App{Package: "app.pinky.companion", Socket: "pinky_companion"}
+	Dev     = App{Package: "app.pinky.companion.dev", Socket: "pinky_companion_dev"}
 )
+
+// ServiceClass is the accessibility service's class, the same in every
+// build.
+const ServiceClass = "app.pinky.companion.PinkyAccessibilityService"
+
+// Component is the build's service as Android lists it in
+// enabled_accessibility_services: "app.pinky.companion/.PinkyAccessibilityService"
+// for the release build, the full class name for the development build,
+// whose class is outside its package.
+func (a App) Component() string {
+	if rest, ok := strings.CutPrefix(ServiceClass, a.Package+"."); ok {
+		return a.Package + "/." + rest
+	}
+	return a.Package + "/" + ServiceClass
+}
+
+// AppFor returns the build with an application id.
+func AppFor(pkg string) (App, bool) {
+	for _, a := range []App{Release, Dev} {
+		if a.Package == pkg {
+			return a, true
+		}
+	}
+	return App{}, false
+}
 
 const (
 	defaultTimeout = 15 * time.Second
@@ -39,10 +72,12 @@ const (
 	DefaultQuiet = 300 * time.Millisecond
 )
 
-// Client talks to the companion app on one device. Its methods are safe for
-// concurrent use; requests on the shared connection run one at a time.
+// Client talks to one build of the companion app on one device. Its
+// methods are safe for concurrent use; requests on the shared connection
+// run one at a time.
 type Client struct {
 	run Runner
+	app App
 
 	mu     sync.Mutex // guards the fields below and serializes requests
 	fwd    string     // local address of the adb forward
@@ -61,10 +96,17 @@ type Client struct {
 	subs  map[*Subscription]struct{}
 }
 
-// New returns a client that reaches the device through r.
-func New(r Runner) *Client {
-	return &Client{run: r, subs: map[*Subscription]struct{}{}}
+// New returns a client for the release build that reaches the device
+// through r.
+func New(r Runner) *Client { return NewFor(r, Release) }
+
+// NewFor returns a client for one build of the app.
+func NewFor(r Runner, app App) *Client {
+	return &Client{run: r, app: app, subs: map[*Subscription]struct{}{}}
 }
+
+// App returns the build the client talks to.
+func (c *Client) App() App { return c.app }
 
 // Close closes the client's connections and its adb forward. It does not
 // turn the service off; call Disable for that.
@@ -247,7 +289,8 @@ func (c *Client) SetIncludeNotImportant(ctx context.Context, on bool) error {
 }
 
 // SetIdleDisable sets how long the service waits without any connection
-// before it turns itself off; 0 keeps it on. The default is 3 minutes.
+// before it turns itself off; 0 keeps it on. The default is a minute
+// (three in builds until 2026-11-08).
 func (c *Client) SetIdleDisable(ctx context.Context, d time.Duration) error {
 	return c.call(ctx, "config", map[string]any{"idle_disable_ms": d.Milliseconds()}, nil, true)
 }
@@ -363,7 +406,7 @@ func (c *Client) connectLocked(ctx context.Context) error {
 // listens on the phone, so a dead service shows up as EOF on first read.
 func (c *Client) dialLocked(ctx context.Context) (net.Conn, error) {
 	if c.fwd == "" {
-		addr, err := c.run.Forward(ctx, "localabstract:"+SocketName)
+		addr, err := c.run.Forward(ctx, "localabstract:"+c.app.Socket)
 		if err != nil {
 			return nil, err
 		}

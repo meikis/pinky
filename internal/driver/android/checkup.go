@@ -85,7 +85,7 @@ func (d *Device) checkCompanion(ctx context.Context) driver.Check {
 	}
 	c.Detail = "the companion app is " + string(cs)
 	switch cs {
-	case driver.CompanionOn:
+	case driver.CompanionOn, driver.CompanionReady:
 		c.Status = driver.CheckPass
 	case driver.CompanionOff:
 		c.Status, c.Fix = driver.CheckFail, driver.FixTurnOnCompanion

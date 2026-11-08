@@ -64,11 +64,28 @@ jobs:
         if: github.event_name == 'push' || inputs.publish
         run: go run ./scripts/release notes "${TAG#v}" > /dev/null
       - name: Build
+        # Signed with Pinky's release key, which only these secrets hold:
+        # Android installs an update of the app only when it is signed with
+        # the installed one's key (docs/RELEASING.md). The keystore is on
+        # the runner only while the build runs.
         env:
           STRICT: "1"
+          COMPANION_KEYSTORE: ${{ secrets.COMPANION_KEYSTORE }}
+          PINKY_COMPANION_KEYSTORE_PASSWORD: ${{ secrets.COMPANION_KEYSTORE_PASSWORD }}
         run: |
+          if [ -z "$COMPANION_KEYSTORE" ] || [ -z "$PINKY_COMPANION_KEYSTORE_PASSWORD" ]; then
+            echo "::error::The secrets COMPANION_KEYSTORE (the companion's release keystore, base64) and COMPANION_KEYSTORE_PASSWORD are not set; see docs/RELEASING.md"
+            exit 1
+          fi
+          export PINKY_COMPANION_KEYSTORE="$RUNNER_TEMP/companion-release.p12"
+          trap 'rm -f "$PINKY_COMPANION_KEYSTORE"' EXIT
+          (umask 077 && printf '%s' "$COMPANION_KEYSTORE" | base64 --decode > "$PINKY_COMPANION_KEYSTORE")
           go run ./scripts/release stamp "${TAG#v}"
           scripts/dist.sh companion "$RUNNER_TEMP/companion"
+          # The certificate the release is signed with, for the log: the
+          # same in every release, or installed Companions cannot update.
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$bt/apksigner" verify --print-certs "$RUNNER_TEMP/companion/pinky-companion.apk" 2>/dev/null | grep -E 'DN|SHA-256' || true
       - uses: actions/upload-artifact@v7
         with:
           name: companion

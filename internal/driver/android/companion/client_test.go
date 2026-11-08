@@ -45,7 +45,7 @@ func TestTreeAndScreen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.App.ID != Package || len(s.Elements) != 2 || s.Width != 1080 {
+	if s.App.ID != Release.Package || len(s.Elements) != 2 || s.Width != 1080 {
 		t.Fatalf("screen: %s", s.Render())
 	}
 	if s.CapturedAt.IsZero() {

@@ -23,7 +23,7 @@ RELEASE_SIGN ?= Developer ID Application: NATURAL SELECTION LABS PTE. LTD. (492J
 NOTARY_PROFILE ?= pinky-notary
 DMG := build/pinky/darwin-$(GOARCH)/pinky-$(VERSION)-$(GOARCH).dmg
 
-.PHONY: build test vet check app e2e companion ffmpeg adb release notarize dist
+.PHONY: build test vet check app e2e companion companion-release ffmpeg adb release notarize dist
 
 build:
 	CGO_ENABLED=0 go build ./...
@@ -108,3 +108,9 @@ export ANDROID_HOME JAVA_HOME
 
 companion:
 	cd android/companion && ./gradlew --quiet assembleDebug
+
+# The companion's release build, signed with Pinky's release key
+# (PINKY_COMPANION_KEYSTORE and PINKY_COMPANION_KEYSTORE_PASSWORD, which only
+# the release workflow has); scripts/dist.sh companion runs it.
+companion-release:
+	cd android/companion && ./gradlew --quiet assembleRelease

@@ -98,7 +98,7 @@ func TestCompanionInstall(t *testing.T) {
 	if err := a.InstallCompanion(ctx, "pixel-9"); err != nil {
 		t.Fatal(err)
 	}
-	if cs, _ := a.CompanionState(ctx, "pixel-9"); cs != driver.CompanionOn {
+	if cs, _ := a.CompanionState(ctx, "pixel-9"); cs != driver.CompanionReady {
 		t.Errorf("after the install: %q", cs)
 	}
 	b := New(Options{Scenario: ThreePhones, Speed: 50})

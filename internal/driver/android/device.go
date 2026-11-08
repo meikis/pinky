@@ -10,6 +10,7 @@ import (
 
 	"github.com/DIYgod/pinky/internal/driver"
 	"github.com/DIYgod/pinky/internal/driver/android/adb"
+	"github.com/DIYgod/pinky/internal/driver/android/companion"
 	"github.com/DIYgod/pinky/internal/driver/android/scrcpy"
 	"github.com/DIYgod/pinky/internal/screen"
 )
@@ -65,6 +66,8 @@ type Device struct {
 
 	comp   companionLink
 	person personWatch
+	// compRun, set by tests, stands in for adb in the companion's clients.
+	compRun companion.Runner
 
 	bgMu sync.Mutex
 	bgs  map[*Background]struct{} // open background displays

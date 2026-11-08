@@ -366,6 +366,7 @@ func (g *Gateway) takeOver(d *device, byInput bool) {
 	changed := !d.person
 	if changed {
 		d.person = true
+		g.noteWorkLocked(d)
 		if l != nil {
 			l.tookOverSeen = false
 			l.handedBack, l.handBackNote = false, ""
@@ -404,6 +405,7 @@ func (g *Gateway) HandBack(deviceID, note string) error {
 	}
 	g.mu.Lock()
 	d.person, d.personInput = false, false
+	g.noteWorkLocked(d)
 	l := d.lease
 	if l == nil {
 		g.wakeLocked(d)

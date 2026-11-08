@@ -41,17 +41,17 @@ func (c *Client) InstallIfChanged(ctx context.Context, apk string) (bool, error)
 	return true, nil
 }
 
-// Uninstall removes the companion app, Pinky's own package and nothing
-// else. Call ForceDisable first: when an uninstalled package's service is
-// listed in enabled_accessibility_services, Android rewrites the setting,
-// and the person's other entries with it.
+// Uninstall removes the client's build of the companion app, Pinky's own
+// package and nothing else. Call ForceDisable first: when an uninstalled
+// package's service is listed in enabled_accessibility_services, Android
+// rewrites the setting, and the person's other entries with it.
 func (c *Client) Uninstall(ctx context.Context) error {
-	out, err := c.run.Shell(ctx, "pm uninstall "+Package)
+	out, err := c.run.Shell(ctx, "pm uninstall "+c.app.Package)
 	if err != nil {
 		return err
 	}
 	if !strings.Contains(out, "Success") {
-		return fmt.Errorf("pm uninstall %s: %s", Package, strings.TrimSpace(out))
+		return fmt.Errorf("pm uninstall %s: %s", c.app.Package, strings.TrimSpace(out))
 	}
 	return nil
 }
@@ -59,6 +59,8 @@ func (c *Client) Uninstall(ctx context.Context) error {
 var (
 	versionNameRE = regexp.MustCompile(`(?m)^\s*versionName=(\S+)`)
 	versionCodeRE = regexp.MustCompile(`(?m)\bversionCode=(\d+)`)
+	// "signatures=PackageSignatures{97e501d version:2, signatures:[dd80ed25], past signatures:[]}"
+	signaturesRE = regexp.MustCompile(`signatures=PackageSignatures\{[^}]*?\bsignatures:\[([0-9a-f]+)`)
 )
 
 // Installed returns the installed companion's version name, or ok=false
@@ -68,17 +70,36 @@ func (c *Client) Installed(ctx context.Context) (version string, ok bool, err er
 	return v.Name, ok, err
 }
 
-// Version is an app version: the name people read and the code Android
-// compares.
+// Version is a build of the app: the version name people read, the code
+// Android compares, and the key it is signed with. Android installs an
+// update only when it is signed with the installed build's key.
 type Version struct {
 	Name string
 	Code int
+	// Signer is Android's short name for the signing certificate, the hex
+	// of its Java hash code, as `dumpsys package` prints it
+	// ("signatures:[dd80ed25]"); "" when unknown.
+	Signer string
 }
 
-// InstalledVersion returns the installed companion's version, and false
-// when the app is not installed.
+// OldPublicSigner is the signing certificate of every build from 2026-11-07
+// to 2026-11-08, android/companion/pinky-companion-debug.keystore, whose
+// key and password are public since the repository is: anyone can sign an
+// update of those builds. Pinky replaces them with a build signed with its
+// private release key.
+const OldPublicSigner = "dd80ed25"
+
+// SignedElsewhere reports whether an installed build is signed with
+// another key than an APK, so that the APK cannot install over it; false
+// when either signer is unknown.
+func (v Version) SignedElsewhere(apk Version) bool {
+	return v.Signer != "" && apk.Signer != "" && v.Signer != apk.Signer
+}
+
+// InstalledVersion returns the installed build's version, and false when
+// the app is not installed.
 func (c *Client) InstalledVersion(ctx context.Context) (Version, bool, error) {
-	out, err := c.run.Shell(ctx, "dumpsys package "+Package)
+	out, err := c.run.Shell(ctx, "dumpsys package "+c.app.Package)
 	if err != nil {
 		return Version{}, false, err
 	}
@@ -87,9 +108,9 @@ func (c *Client) InstalledVersion(ctx context.Context) (Version, bool, error) {
 }
 
 // parsePackageVersion reads `dumpsys package <pkg>` ("versionCode=68
-// minSdk=29 targetSdk=36", "versionName=0.1.0"); the first package entry
-// wins, which is the installed one even while an update is staged. A
-// missing package prints neither line.
+// minSdk=29 targetSdk=36", "versionName=0.1.0", "signatures=..."); the
+// first package entry wins, which is the installed one even while an
+// update is staged. A missing package prints none of these lines.
 func parsePackageVersion(out string) (Version, bool) {
 	var v Version
 	found := false
@@ -100,6 +121,9 @@ func parsePackageVersion(out string) (Version, bool) {
 	if m := versionNameRE.FindStringSubmatch(out); m != nil {
 		v.Name = m[1]
 		found = true
+	}
+	if m := signaturesRE.FindStringSubmatch(out); m != nil && found {
+		v.Signer = m[1]
 	}
 	return v, found
 }
@@ -112,12 +136,14 @@ const versionAsset = "assets/pinky-companion.json"
 // the version file was added (2026-11-07).
 var ErrNoVersion = errors.New("the APK has no " + versionAsset)
 
-// APKVersion reads the version a companion APK carries in
-// assets/pinky-companion.json, written by the same build as the manifest.
-func APKVersion(apk string) (Version, error) {
+// APKVersion reads which build a companion APK is and its version, from
+// assets/pinky-companion.json, written by the same build as the manifest,
+// and its signer from its signing block. An APK whose signing block cannot
+// be read has no Signer.
+func APKVersion(apk string) (App, Version, error) {
 	z, err := zip.OpenReader(apk)
 	if err != nil {
-		return Version{}, fmt.Errorf("read %s: %w", apk, err)
+		return App{}, Version{}, fmt.Errorf("read %s: %w", apk, err)
 	}
 	defer z.Close()
 	for _, f := range z.File {
@@ -126,7 +152,7 @@ func APKVersion(apk string) (Version, error) {
 		}
 		r, err := f.Open()
 		if err != nil {
-			return Version{}, err
+			return App{}, Version{}, err
 		}
 		defer r.Close()
 		var v struct {
@@ -135,19 +161,24 @@ func APKVersion(apk string) (Version, error) {
 			VersionCode int    `json:"version_code"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r, 64<<10)).Decode(&v); err != nil {
-			return Version{}, fmt.Errorf("%s in %s: %w", versionAsset, apk, err)
+			return App{}, Version{}, fmt.Errorf("%s in %s: %w", versionAsset, apk, err)
 		}
-		if v.Package != Package || v.VersionCode <= 0 {
-			return Version{}, fmt.Errorf("%s in %s names %q version %d, not Pinky's companion", versionAsset, apk, v.Package, v.VersionCode)
+		app, ok := AppFor(v.Package)
+		if !ok || v.VersionCode <= 0 {
+			return App{}, Version{}, fmt.Errorf("%s in %s names %q version %d, not Pinky's companion", versionAsset, apk, v.Package, v.VersionCode)
 		}
-		return Version{Name: v.VersionName, Code: v.VersionCode}, nil
+		ver := Version{Name: v.VersionName, Code: v.VersionCode}
+		if cert, err := APKCertificate(apk); err == nil {
+			ver.Signer = SignerName(cert)
+		}
+		return app, ver, nil
 	}
-	return Version{}, fmt.Errorf("%s: %w", apk, ErrNoVersion)
+	return App{}, Version{}, fmt.Errorf("%s: %w", apk, ErrNoVersion)
 }
 
 // InstalledSHA256 hashes the installed base APK on the phone.
 func (c *Client) InstalledSHA256(ctx context.Context) (string, error) {
-	out, err := c.run.Shell(ctx, "pm path "+Package)
+	out, err := c.run.Shell(ctx, "pm path "+c.app.Package)
 	if err != nil {
 		return "", err
 	}
@@ -158,7 +189,7 @@ func (c *Client) InstalledSHA256(ctx context.Context) (string, error) {
 		}
 	}
 	if path == "" {
-		return "", fmt.Errorf("%s is not installed", Package)
+		return "", fmt.Errorf("%s is not installed", c.app.Package)
 	}
 	out, err = c.run.Shell(ctx, "sha256sum "+shellQuote(path))
 	if err != nil {

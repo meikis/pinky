@@ -760,9 +760,9 @@
   "@checkCompanionNone": {
     "description": "The checkup, Pinky Companion: the check failed."
   },
-  "checkCompanionOff": "Installed, but its accessibility service is off.",
+  "checkCompanionOff": "Installed, but Pinky couldn't turn on its accessibility service.",
   "@checkCompanionOff": {
-    "description": "The checkup, Pinky Companion: its service is off; a Turn on button follows."
+    "description": "The checkup, Pinky Companion: its service did not come on the last time Pinky tried; a Turn on button follows."
   },
   "checkCompanionOffHuawei": "If it keeps turning off: search Settings for App launch, turn off Manage automatically for Pinky Companion, and allow it to run in the background.",
   "@checkCompanionOffHuawei": {
@@ -788,9 +788,9 @@
   "@checkCompanionOutdated": {
     "description": "The checkup, Pinky Companion: outdated; an Update button follows."
   },
-  "checkCompanionPass": "Installed and on: Pinky reads the screen quickly and types any language.",
+  "checkCompanionPass": "Installed. Pinky turns it on only while an agent works on the phone, then reads the screen quickly and types any language.",
   "@checkCompanionPass": {
-    "description": "The checkup, Pinky Companion: passed."
+    "description": "The checkup, Pinky Companion: passed. Pinky turns the app's accessibility service on only while an agent works on the phone, and off again afterwards."
   },
   "checkCompanionTitle": "Pinky Companion",
   "@checkCompanionTitle": {
@@ -1196,9 +1196,9 @@
   "@companionInstall": {
     "description": "The Pinky Companion card: the button that installs the app on the phone."
   },
-  "companionInstallBody": "A small Pinky app for {name}. Agents control the phone faster and more steadily with it, and type without using its clipboard.",
+  "companionInstallBody": "A small Pinky app for {name}. Agents control the phone faster and more steadily with it, and type without using its clipboard. Pinky turns it on only while an agent works.",
   "@companionInstallBody": {
-    "description": "The Pinky Companion card, when the app is not installed: why to install it. name is the phone's name. The card is in a narrow side panel.",
+    "description": "The Pinky Companion card, when the app is not installed: why to install it. Pinky turns its accessibility service on only while an agent works on the phone. name is the phone's name. The card is in a narrow side panel.",
     "placeholders": {
       "name": {
         "type": "String",
@@ -1236,25 +1236,29 @@
   "@companionLineNoAPK": {
     "description": "Settings › Phones: a phone's line about Pinky Companion when this build of Pinky does not include the app."
   },
-  "companionLineOff": "Pinky Companion is installed but off",
+  "companionLineOff": "Pinky couldn't turn on Pinky Companion",
   "@companionLineOff": {
-    "description": "Settings › Phones: a phone's line about Pinky Companion when the app is installed but its service is off."
+    "description": "Settings › Phones: a phone's line about Pinky Companion when its service did not come on the last time Pinky tried."
   },
   "companionLineOn": "Pinky Companion is on",
   "@companionLineOn": {
-    "description": "Settings › Phones: a phone's line about Pinky Companion, Pinky's app for the phone, when it runs."
+    "description": "Settings › Phones: a phone's line about Pinky Companion, Pinky's app for the phone, while its accessibility service is on: an agent works on the phone."
   },
   "companionLineOutdated": "Pinky Companion has an update",
   "@companionLineOutdated": {
     "description": "Settings › Phones: a phone's line about Pinky Companion when this Pinky comes with a newer version."
   },
+  "companionLineReady": "Pinky Companion turns on only while an agent works",
+  "@companionLineReady": {
+    "description": "Settings › Phones: a phone's line about Pinky Companion, Pinky's app for the phone, when it is installed and ready: Pinky turns its accessibility service on only while an agent works on the phone, so that the phone's apps (banking apps check for such services) see it only then."
+  },
   "companionNotNow": "Not now",
   "@companionNotNow": {
     "description": "The Pinky Companion card: the quiet button that hides the card for this phone."
   },
-  "companionOnToast": "Pinky Companion is on for {name}",
+  "companionOnToast": "Pinky Companion is ready on {name}",
   "@companionOnToast": {
-    "description": "A notice after Pinky installed, updated or turned on Pinky Companion, its app for Android phones. name is the phone's name.",
+    "description": "A notice after Pinky installed, updated or turned on Pinky Companion, its app for Android phones, and checked that its service comes on. It is on only while an agent works on the phone. name is the phone's name.",
     "placeholders": {
       "name": {
         "type": "String",
@@ -1270,9 +1274,9 @@
   "@companionTurnOn": {
     "description": "The Pinky Companion card: the button that turns the app's service on."
   },
-  "companionTurnOnBody": "The app is installed, but its service is off, so agents control the phone the slower way. Pinky can turn it on.",
+  "companionTurnOnBody": "Pinky couldn't turn on the app's service the last time it tried, so agents control the phone the slower way. Try again to see why.",
   "@companionTurnOnBody": {
-    "description": "The Pinky Companion card, when the app's service is off: why to turn it on."
+    "description": "The Pinky Companion card, when the app's service did not come on the last time Pinky tried (some phones refuse settings changes from the computer): why to try again. Turn on, the button, shows the reason if it fails again."
   },
   "companionTurnOnLabel": "Turn on Pinky Companion on {name}",
   "@companionTurnOnLabel": {
@@ -6764,6 +6768,16 @@
   "@updateCompanionNeedsYou": {
     "description": "The companion card: the phone asks the person before installs, so Pinky cannot update it by itself."
   },
+  "updateCompanionReplacedToast": "Reinstalled Pinky Companion on {phone} with Pinky's private signing key",
+  "@updateCompanionReplacedToast": {
+    "description": "A toast after Pinky replaced the companion app on a phone by itself: the installed one was signed with another key (the public one of builds until 2026-11-08), so Pinky removed it and installed its own, signed with Pinky's private key.",
+    "placeholders": {
+      "phone": {
+        "type": "String",
+        "example": "Pixel 9"
+      }
+    }
+  },
   "updateCompanionToast": "Updated Pinky Companion on {phone}",
   "@updateCompanionToast": {
     "description": "A toast after Pinky updated the companion app on a phone by itself.",
@@ -6977,6 +6991,20 @@
       "version": {
         "type": "String",
         "example": "131"
+      }
+    }
+  },
+  "updateNewsCompanionReplaced": "Reinstalled on {phone} as {version}, signed with Pinky's private key. The earlier build was signed with a public key, with which anyone could sign an update of it.",
+  "@updateNewsCompanionReplaced": {
+    "description": "What's new, under the Pinky Companion heading: Pinky replaced the companion app on a phone with a build signed with its private key, because the installed one was signed with a public key.",
+    "placeholders": {
+      "phone": {
+        "type": "String",
+        "example": "Pixel 9"
+      },
+      "version": {
+        "type": "String",
+        "example": "2026.1108.9 (480)"
       }
     }
   },

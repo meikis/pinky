@@ -420,6 +420,34 @@ func TestCompanionUpdatesWhenThePhoneIsFree(t *testing.T) {
 	}
 }
 
+func TestCompanionSignedWithThePublicKeyIsReplaced(t *testing.T) {
+	ut := newUpdateTest(t, fakeapi.Companion)
+	ut.api.SetCompanionSignedElsewhere("pixel-9")
+	ut.waitFor(t, "Pixel 9", func() bool { return ut.device("pixel-9") != nil })
+	ut.updateTick(time.Now()) // looks the companion up
+	ut.waitFor(t, "the companion's state", func() bool { return ut.comp.state["pixel-9"] == driver.CompanionOutdated })
+	ut.updateTick(time.Now())
+	ut.waitFor(t, "the replacement", func() bool { return len(ut.api.CompanionUpdates()) == 1 && !ut.companionUpdating("pixel-9") })
+	tt := mg.NewTester(ut.view, 1280, 820)
+	tt.Frame()
+	if !hasText(tt, "Reinstalled Pinky Companion on Pixel 9 with Pinky's private signing key") {
+		t.Errorf("no notice of the replacement: %q", tt.Texts())
+	}
+	if st := ut.u.State(); len(st.Changes) != 1 || st.Changes[0].Kind != "companion-replaced" {
+		t.Fatalf("changes %+v", st.Changes)
+	}
+	if err := tt.Click("See what's new"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !hasText(tt, "Reinstalled on Pixel 9 as 0.1.0 (130), signed with Pinky's private key.") {
+		t.Errorf("the dialog: %q", tt.Texts())
+	}
+	if ut.comp.state["pixel-9"] != driver.CompanionReady {
+		t.Errorf("state after the replacement: %q", ut.comp.state["pixel-9"])
+	}
+}
+
 func TestCompanionWaitsWhileAnAgentWorks(t *testing.T) {
 	ut := newUpdateTest(t, fakeapi.OnePhone)
 	ut.waitFor(t, "the agent's task", func() bool { return ut.anyRunning() })

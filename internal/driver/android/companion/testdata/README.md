@@ -9,3 +9,7 @@ Fixtures for `screen_recorded_test.go`: the companion app's `tree` results, take
 To take them again: open Settings, tap the search field through the emulator console (`adb emu event mouse 540 243 0 1`, then `... 0 0`: the console's mouse arrives as a stylus, so Gboard switches to its stylus toolbar), type "display", then tap the toolbar's menu button and Try handwriting demo, reading the tree after each step.
 
 Never take trees from someone's phone without them: they hold what is on the screen.
+
+# The old public signer
+
+`old-public-signer.der` is the certificate (public, no key) of `android/companion/pinky-companion-debug.keystore`, which signed every build from 2026-11-07 until the release key on 2026-11-08 and was committed with its password, so anyone could sign an update with it. `dumpsys package` names it `dd80ed25`; the tests check that `SignerName` gives the same, so that Pinky can tell those builds and replace them.

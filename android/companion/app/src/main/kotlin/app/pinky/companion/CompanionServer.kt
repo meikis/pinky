@@ -16,7 +16,8 @@ import java.util.concurrent.CopyOnWriteArraySet
 
 /**
  * Serves the line-delimited JSON protocol on the abstract Unix socket
- * `@pinky_companion`. The computer reaches it with
+ * `@pinky_companion` (`@pinky_companion_dev` in the development build,
+ * which may be installed beside a release). The computer reaches it with
  * `adb forward tcp:0 localabstract:pinky_companion`.
  *
  * Any app could connect to an abstract socket, so only the shell user
@@ -136,7 +137,7 @@ class CompanionServer(private val service: PinkyAccessibilityService) {
 
     companion object {
         private const val TAG = "PinkyServer"
-        const val SOCKET_NAME = "pinky_companion"
+        val SOCKET_NAME: String = BuildConfig.SOCKET_NAME
 
         // android.os.Process.SHELL_UID and ROOT_UID are hidden APIs.
         private const val SHELL_UID = 2000
