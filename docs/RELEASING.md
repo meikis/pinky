@@ -7,7 +7,7 @@ Pinky releases often, several times a day when there is something to ship, and n
 1. The notes wait in [CHANGELOG.md](../CHANGELOG.md) under `## Unreleased`.
 2. `scripts/release.sh tag -push` gives them the next version, commits `chore(release): <version>`, tags it `v<version>` and pushes `main` and the tag together (`git push --atomic`).
 3. The tag starts [.github/workflows/release.yml](../.github/workflows/release.yml), which runs the scripts as they are at the tag, on GitHub's runners (free, macOS's too, as the repository is public):
-   - **Companion APK** (Ubuntu): checks the tag and its notes, then `scripts/dist.sh companion`.
+   - **Companion APK** (Ubuntu): checks the tag and its notes, then `scripts/dist.sh companion`, which builds the companion's release build signed with its release key ([below](#the-companions-signing-key)).
    - **Linux and Windows** (Ubuntu): `scripts/dist.sh windows`, `scripts/dist.sh linux`, with their FFmpeg and adb (below), then decodes test streams with the FFmpeg that the `.tar.gz` carries and starts a server with its adb.
    - **Windows package** (GitHub's Windows runner): decodes test streams with the FFmpeg that the Windows zip carries and starts a server with its adb.
    - **macOS**: `scripts/dist.sh darwin` builds Pinky.app for Apple silicon and Intel, each with its own FFmpeg and adb, signs them with the Developer ID, notarizes both disk images at once and staples the tickets to the disk images and the apps, then starts a server with each app's adb (the Intel one's where the runner has Rosetta).
@@ -63,6 +63,16 @@ Every package carries Pinky's own adb, so that Android phones need no platform t
 
 Pinky prefers an adb the computer has (the Android SDK's, Homebrew's, PATH's) and runs its own from a copy in the user's cache folder, never from the app's folder: see [Pinky's own adb](notes/android.md#pinkys-own-adb). The builds are kept by the hash of `scripts/adb.sh` and `scripts/adb/`: the release workflow caches them, and this Mac keeps them in `~/Library/Caches/pinky-release/adb` (`ADB_CACHE`). `PINKY_ADB_APP=<a Pinky.app, or the folder of an unpacked Windows or Linux package> go test -run TestPackagedADB ./internal/driver/android/adb/` starts a server with a package's adb on a port of its own, as the release workflow does before it publishes. `make adb` builds this Mac's into `build/adb`, which `make app` puts in the app.
 
+### The companion's signing key
+
+Every package carries Pinky Companion's release build, `app.pinky.companion`, signed with Pinky's private release key. Android installs an update of an app only when it is signed with the installed app's key, and an update keeps the accessibility service that was on: with the key private, nobody else can ship an update of a released Companion. The key lives only in the secrets `COMPANION_KEYSTORE` and `COMPANION_KEYSTORE_PASSWORD` (and the owner's backup, below); the release workflow decodes the keystore into a temporary file for the build and deletes it afterwards, and prints the certificate the APK is signed with.
+
+Every release must be signed with this key. An APK signed with another one cannot update installed Companions; Pinky then replaces them by itself (it compares the installed build's signer, which `dumpsys package` shows, with the bundled APK's, and uninstalls and installs it while the phone is free), but phones where Google Play Protect checks USB installs wait for the person's Update, and each replacement shows the person a notice.
+
+The key's certificate has the SHA-256 `7A:0F:AA:EF:34:62:6E:B2:9B:88:99:55:8E:A2:FE:49:13:40:12:59:1F:43:8D:6C:B9:4B:6B:9F:16:D6:19:EF`, and `dumpsys package app.pinky.companion` names its signer `a9ed84e0`; the workflow's log shows the certificate of each release's APK.
+
+Every build until 8 November 2026 was signed with a key committed in this repository (`android/companion/pinky-companion-debug.keystore`, public since the repository is), which Pinky replaces the same way. Builds from the source are the development build, `app.pinky.companion.dev`, signed with the machine's own debug key: they install beside a released Companion and never over it. A dry run (`scripts/release.sh build`) without the key carries one, with a warning; the workflow and `publish` stop without the key, and `scripts/dist.sh` refuses to package the development build when `STRICT` is set.
+
 ### latest.json
 
 ```json
@@ -113,7 +123,13 @@ Done once.
 
    The Apple ID instead also works: `APPLE_ID`, `APPLE_TEAM_ID` (492J8Q67PF) and `APPLE_APP_PASSWORD`, an app-specific password from <https://account.apple.com>.
 
-All three were done on 7 November 2026, with an API key named "Pinky GitHub Actions notary". GitHub never shows a secret again, so the owner keeps the `.p12`, its password and the `.p8` in 1Password, as the "Pinky release: …" items.
+4. **The companion's release key, `COMPANION_KEYSTORE` and `COMPANION_KEYSTORE_PASSWORD`.** `scripts/companion-key.sh` makes it: a PKCS12 keystore with one RSA 4096 key under the alias `pinky-companion`, a certificate for `CN=Pinky Companion, O=Pinky` valid for 30 years, and a random password (the key's too). The key never touches a file or a command line: it stays in the script's variables and goes through pipes to 1Password (the item "Pinky release: Companion signing key (Android) for GitHub Actions", in the vault `OP_VAULT`, Employee by default, of the account `OP_ACCOUNT`, rsshub) and, once the script has read that copy back, to the secrets. 1Password asks the person to allow its CLI. It prints the certificate and the name Android shows for its signer.
+
+   Done on 8 November 2026: certificate SHA-256 `7A:0F:AA:EF:34:62:6E:B2:9B:88:99:55:8E:A2:FE:49:13:40:12:59:1F:43:8D:6C:B9:4B:6B:9F:16:D6:19:EF`, valid until 8 November 2056; `dumpsys package app.pinky.companion` shows its signer as `signatures:[a9ed84e0]`. The keystore (base64, as the secret holds it) and its password are in the 1Password item, and nowhere else but the secrets.
+
+   Keep that copy: GitHub never shows a secret again, and without the key no release can update the Companions installed until then. To set the secrets from it again: `op read "op://Employee/Pinky release: Companion signing key (Android) for GitHub Actions/keystore" | gh secret set COMPANION_KEYSTORE --repo DIYgod/pinky`, and the same with `password` for `COMPANION_KEYSTORE_PASSWORD`. If the key leaks, run the script again (it makes a new key, a new item and new secrets) and delete the old item: the next release replaces every installed Companion, and each phone's owner sees a notice once.
+
+All three Apple secrets were done on 7 November 2026, with an API key named "Pinky GitHub Actions notary". GitHub never shows a secret again, so the owner keeps the `.p12`, its password and the `.p8` in 1Password, as the "Pinky release: …" items.
 
 **Renewing.** The Developer ID certificate expires on 1 February 2027, together with Apple's first Developer ID certification authority, which issued it. Before then, the team's Account Holder creates a new Developer ID Application certificate (at <https://developer.apple.com/account/resources/certificates>, or in Xcode), and step 2 is done again with it. On this Mac, codesign finds the identity by its name and stops when two certificates share it: remove the old one from the keychains, or set `SIGN` (`RELEASE_SIGN` for `make release`) to the new one's SHA-1. Releases signed and notarized with the old certificate keep opening after it expires, as their signatures carry a timestamp. App Store Connect API keys do not expire: if the key leaks, revoke it in App Store Connect and do step 3 again with a new one.
 
@@ -135,7 +151,7 @@ gh workflow run release.yml --ref <branch> -f tag=v2026.1107.1 -f publish=false
 
 `build` and `publish` check the commit out in a worktree of their own, so nothing uncommitted gets in, and build what the workflow builds into `dist/<version>/` (a dry run's `latest.json` leaves out what it could not build); FFmpeg's and adb's builds are kept in `~/Library/Caches/pinky-release`. They sign with the Developer ID in the login keychain and notarize with the notarytool profile `pinky-notary`, so they need no secrets. A dry run leaves out what it cannot make, with a warning: without nasm (`brew install nasm`) the Intel FFmpeg lacks its assembly, without NSIS (`brew install makensis`) there is no Windows installer, without CMake (`brew install cmake`) Pinky.app carries no adb, and without Docker (OrbStack or Docker Desktop, running) the Windows and Linux packages carry no FFmpeg and no adb. `publish` stops instead, and needs all four (or `STRICT=0`, to publish without them).
 
-`publish` is for when the workflow cannot run (GitHub Actions is down, or a secret has expired). It publishes the same release as the workflow, so cancel the tag's run before you publish the tag from the Mac.
+`publish` is for when the workflow cannot run (GitHub Actions is down, or a secret has expired). It publishes the same release as the workflow, so cancel the tag's run before you publish the tag from the Mac. It needs the companion's release key, which only the secrets and the owner's 1Password item hold: put the keystore in a file of its own for the run (`op read "op://Employee/Pinky release: Companion signing key (Android) for GitHub Actions/keystore" | base64 --decode > <file>`), set `PINKY_COMPANION_KEYSTORE` to that file and `PINKY_COMPANION_KEYSTORE_PASSWORD` to the item's password, and delete the file afterwards. A dry run (`build`) does without it and carries the companion's development build instead, with a warning.
 
 To build a tag on GitHub and publish nothing, to check the workflow say, run it with publish off: `gh workflow run release.yml --repo DIYgod/pinky -f tag=<tag> -f publish=false`. The files stay with the run, as its artifacts, for three days.
 

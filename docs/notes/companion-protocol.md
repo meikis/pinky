@@ -14,7 +14,7 @@ Changes since the first version, all additive:
 
 ## Transport
 
-- The service listens on the abstract Unix socket `@pinky_companion`, only while it is bound (from the moment Android connects the service until it is turned off).
+- The service listens on the abstract Unix socket `@pinky_companion`, only while it is bound (from the moment Android connects the service until it is turned off). The development build (`app.pinky.companion.dev`, what builds from the source carry, which can be installed beside a release) listens on `@pinky_companion_dev` instead.
 - The computer reaches it with `adb forward tcp:0 localabstract:pinky_companion` and connects to `127.0.0.1:<port>`. adb accepts the TCP connection even when nothing listens on the phone and then closes it, so a dead service shows up as EOF on the first read.
 - Any app can connect to an abstract socket, so the server checks the peer's credentials and accepts only uid 0 (root), uid 2000 (shell, which is what adbd uses) and the app's own uid. Anyone else gets one line, `{"ok":false,"error":{"code":"forbidden","message":"only adb may connect"}}`, and is disconnected.
 - Any number of connections may be open. Each has its own reader thread; requests on one connection run one at a time, in order. Everything that reads the accessibility tree runs on a single worker thread inside the app, so trees from two connections never interleave.
@@ -200,7 +200,7 @@ Changes the service's settings until the service is turned off. The app saves th
 | Parameter | Default | Meaning |
 | --- | --- | --- |
 | `include_not_important` | false | Include views that are not important for accessibility (layout containers), as `uiautomator dump` does. Before Android 13 the app cannot clear its node cache, so the change takes full effect at the next window change. |
-| `idle_disable_ms` | 180000 | The service turns itself off (`disableSelf`) after this long without any client: no connection open and none opened, closed or used meanwhile. Time the phone spends asleep counts, and so does time across a restart of the service (a `uiautomator dump` rebinds it). 0 keeps it on until it is turned off; Pinky's Install sends it, so a service the person turned on from Pinky stays on, also after a reboot or an update. |
+| `idle_disable_ms` | 60000 (180000 in builds until 2026-11-08) | The service turns itself off (`disableSelf`) after this long without any client: no connection open and none opened, closed or used meanwhile. Time the phone spends asleep counts, and so does time across a restart of the service (a `uiautomator dump` rebinds it). 0 keeps it on until it is turned off, also after a reboot or an update. Pinky's Install sent 0 until 2026-11-08; Pinky now sends nothing, as it turns the service on only while an agent works. |
 
 The result holds the current values.
 
@@ -225,5 +225,5 @@ The Go client maps `not_found` to `driver.ErrNotFound` and `unsupported` to `dri
 
 - Pinky turns the service on by adding only its own component, `app.pinky.companion/.PinkyAccessibilityService`, to `enabled_accessibility_services`, and off by removing it again; see [companion.md](companion.md#turning-the-service-on-and-off).
 - When the service connects it binds the socket (retrying for up to 5 seconds if a previous instance still holds the name); when Android unbinds it, the socket closes and every connection ends.
-- After `idle_disable_ms` without any client the service turns itself off, unless `config` set it to 0. The count goes on when Android only rebinds the service, and it is checked again every time it does. This is a backstop for a gateway that crashed or lost the phone while the service was on for a task.
+- After `idle_disable_ms` without any client the service turns itself off, unless `config` set it to 0. The count goes on when Android only rebinds the service, and it is checked again every time it does. This is a backstop for a gateway that crashed or lost the phone while the service was on for a task: while an agent works, Pinky keeps an event subscription open, and it turns the service off itself when the agent stops.
 - `uiautomator dump` (and any other UiAutomation client that does not ask to keep services) makes Android unbind every accessibility service for as long as it runs, so the companion restarts with an empty cache around each dump. Do not mix the two.

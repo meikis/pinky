@@ -128,7 +128,7 @@ No phone at hand? Quit Pinky and start it with two scripted demo phones (a payme
 
 ### Phones
 
-- **Android:** connected over USB or Wi-Fi ([above](#android)). Pinky works over adb and a bundled scrcpy server. Its companion app, which ships with Pinky, reads the screen in about 70 ms instead of 2 s and types any language without the clipboard: the phone's page offers to install it (the phone may ask you to allow it once). On Android 13 and later, agents work on a background display, so the phone's own screen can stay off and locked.
+- **Android:** connected over USB or Wi-Fi ([above](#android)). Pinky works over adb and a bundled scrcpy server. Its companion app, which ships with Pinky, reads the screen in about 70 ms instead of 2 s and types any language without the clipboard: the phone's page offers to install it (the phone may ask you to allow it once). Its accessibility service is on only while an agent works on the phone, as banking apps refuse to run next to one ([why](#faq)). On Android 13 and later, agents work on a background display, so the phone's own screen can stay off and locked.
 - **iPhone:** connected over USB and prepared by Pinky ([above](#iphone)). What Pinky can do depends on the iOS version and on how Pinky connects, which you can choose for each iPhone in Settings › Phones (Automatic picks by version, as below):
 
   | iOS | How | What works | Tested on |
@@ -145,7 +145,7 @@ No phone at hand? Quit Pinky and start it with two scripted demo phones (a payme
 
 ### Updates
 
-Pinky looks for a new version at launch and every few hours, and shows a card with what changed, **Update now** and **Later**. With Settings › Advanced › **Update automatically** (on by default) it installs it by itself once no agent is working and nobody has used Pinky for ten minutes, and it updates Pinky Companion on Android phones that are free, keeping its accessibility service as it was. After an update, **What's new** lists the changes since the version you had (from [CHANGELOG.md](CHANGELOG.md)).
+Pinky looks for a new version at launch and every few hours, and shows a card with what changed, **Update now** and **Later**. With Settings › Advanced › **Update automatically** (on by default) it installs it by itself once no agent is working and nobody has used Pinky for ten minutes, and it updates Pinky Companion on Android phones that are free; its accessibility service stays off until the next task. A Pinky Companion signed with the public key that its builds had until 8 November 2026 is uninstalled and installed again, signed with Pinky's private key, and Pinky tells you. After an update, **What's new** lists the changes since the version you had (from [CHANGELOG.md](CHANGELOG.md)).
 
 - **macOS:** Pinky.app replaces itself after checking the download's checksum, that it is signed by Pinky's developer and that Apple notarized it, and goes back to the old version if the new one does not start. The Homebrew cask's copy updates itself the same way, and `brew upgrade` leaves it alone while it is current. A copy run from the disk image or from a folder you cannot write to says how to update it instead.
 - **Windows:** a Pinky that its installer installed runs the new installer quietly, after checking its checksum, starts the new version and goes back to the old one if that does not start. The portable copy downloads the installer for you.
@@ -191,7 +191,18 @@ Not through Pinky. Screenshots, recordings and history stay on your computer, fo
 <details>
 <summary><b>What does Pinky install on my phone?</b></summary>
 
-On Android, Pinky Companion, when you click Install; Pinky keeps it up to date. On an iPhone, no app on iOS 27 and later: Pinky mounts Apple's developer disk image, as Xcode does (on iOS 27, for now, Xcode has to mount it once; [details](#iphone)). On iOS 17.4 to 26, the WebDriverAgent helper, which you install once from Xcode ([how](docs/notes/ios.md#installing-the-webdriveragent-helper)).
+On Android, Pinky Companion, when you click Install; Pinky keeps it up to date and turns its accessibility service on only while an agent works ([why](#faq)). On an iPhone, no app on iOS 27 and later: Pinky mounts Apple's developer disk image, as Xcode does (on iOS 27, for now, Xcode has to mount it once; [details](#iphone)). On iOS 17.4 to 26, the WebDriverAgent helper, which you install once from Xcode ([how](docs/notes/ios.md#installing-the-webdriveragent-helper)).
+
+</details>
+
+<details>
+<summary><b>Will banking or other apps notice Pinky Companion?</b></summary>
+
+While its accessibility service is on, they can. Malware abuses accessibility services, so many banking apps refuse to sign in while an app from outside an app store has one turned on: in Malaysia (Maybank, CIMB, HSBC and the other members of the Association of Banks in Malaysia, since 2024) and in Singapore (DBS, OCBC and UOB, since 2023) among others. Pinky Companion is such an app, as Pinky installs it over USB. Apps such as WeChat, Douyin and Xiaohongshu can see the service too and watch for automated use; we know of no report that they flagged Pinky Companion, but letting an agent use them may be against their terms.
+
+So Pinky turns the service on only while an agent works on the phone: as a task starts, and off again a few seconds after the task ends or you take over the phone, or a minute after the agent's last step. The rest of the time it is off, and those apps work as usual. While an agent works, even on the phone's background display, they see it: to use one of them then, click **Take over** in Pinky first, or end the task.
+
+To keep Pinky from turning the service on at all, uninstall Pinky Companion on the phone (Android's Settings › Apps). Pinky works without it, only more slowly: it reads a screen in about 2 s instead of 70 ms, and types text other than plain English through the phone's clipboard. **Not now** on the phone's page puts away Pinky's offer to install it again.
 
 </details>
 
